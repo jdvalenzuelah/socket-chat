@@ -77,13 +77,13 @@ int Client::log_in() {
 
     /* Step 3: Send ack to server */
     // TODO MyInfoAcknowledge Not defined on protocol
-    MyInfoAcknowledge * my_info_ack(new MyInfoAcknowledge);
+    /*MyInfoAcknowledge * my_info_ack(new MyInfoAcknowledge);
     my_info_ack->set_userid(_user_id);
 
     ClientMessage res_ack;
     res_ack.set_option(10);
 
-    send_request(res_ack);
+    send_request(res_ack);*/
 
     return 0;
 }
@@ -138,7 +138,7 @@ ServerMessage Client::read_message() {
 
     /* Read for server response */
     char response[MESSAGE_SIZE] = {0};
-    if( read(_sock, response, MESSAGE_SIZE) < 0 ) {
+    if( recvfrom(_sock, response, MESSAGE_SIZE, 0, NULL, NULL) < 0 ) {
         perror("Error reading response");
         exit(EXIT_FAILURE);
     }
