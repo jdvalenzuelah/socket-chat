@@ -24,7 +24,7 @@ Install make and protobuf (with fedora as follows)
 sudo dnf install make
 ```
 ```
-sudo dnf install protobufke
+sudo dnf install protobuf
 ```
 
 Compiling protobuf messages
