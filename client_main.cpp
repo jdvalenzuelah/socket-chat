@@ -18,27 +18,18 @@ int main(int argc, char *argv[]) {
     if( client.connect_server(address, port) < 0 ) {
         printf("Connection error!\n");
         return -1;
-    } else {
-        printf("Connected to server at %s:%d\n", address, port);
     }
 
+    printf("Connected to server at %s:%d\n", address, port);
+
     /* Log in to server */
-    printf("Logging in to server username: %s...\n", argv[1]);
+    /*printf("Logging in to server username: %s...\n", argv[1]);
     if( client.log_in() < 0 ) {
         printf("Unable to log in\n");
         return -1;
-    }
+    }*/
 
-    std::cout << "Logged in succesfuly your user id:: " << client._user_id << std::endl;
-
-    while(1) {
-        int opt;
-        cout << "Press 1 to continue";
-        cin >> opt;
-        client.send_request( client.get_connected_request() );
-        client.read_message();
-    }
-
+    client.start_session();
     return 0;
 
 }

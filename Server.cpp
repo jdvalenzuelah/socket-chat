@@ -3,7 +3,7 @@
 using namespace chat;
 
 /*
-* Start server instance
+* Start server instance. Saves port where the server will be running and defines the log level
 */
 Server::Server( int port, FILE *log_level ) {
     _port = port;
@@ -46,7 +46,7 @@ int Server::initiate() {
 }
 
 /*
-* Listen for messages
+* Listen for new connections and adds them to the request queue to be processed
 * returns 0 on succes -1 on error
 */
 int Server::listen_connections() {
@@ -74,17 +74,19 @@ int Server::listen_connections() {
 }
 
 /*
-* Read message on socket fd and writes it to buf
-* Returns 0 on succes -1 on error 
+* Read message on socket fd and writes it to buf. This is just a wrapper on recvfrom
+* to make code easier to understand.
+* Returns the number of bytes received, or -1 if an error occurred.
 */
 int Server::read_request( int fd, void *buf ) {
     /* Read request info on socket */
     fprintf(_log_level, "DEBUG: Waiting for request of fd: %d \n", fd);
-    if( recvfrom( fd, buf, MESSAGE_SIZE, 0, NULL, NULL ) < 0 ) {
+    int read_size;
+    if( ( read_size = recvfrom( fd, buf, MESSAGE_SIZE, 0, NULL, NULL ) ) < 0 ) {
         fprintf(_log_level, "ERROR: Error reading request");
         return -1;
     }
-    return 0;
+    return read_size;
 }
 
 /*
@@ -112,7 +114,7 @@ int Server::send_response( int sock_fd, struct sockaddr_in *dest, ServerMessage 
 }
 
 /*
-* Parse an incomming request
+* Parse an incomming request, returns the ClientMessage that was received
 */
 ClientMessage Server::parse_request( char *req ) {
     /* deserealizing request */
@@ -147,7 +149,8 @@ ServerMessage Server::process_request( ClientMessage cl_msg, client_info cl ) {
 
 /*
 * Register new user on connected users
-* TODO: COMPLETE HANDSHAKE
+* returns username or empty string if unable to register user.
+* Unlike more other functions this one handles the responses to server and process client responses.
 */
 string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     fprintf(_log_level, "LOG: Registering new user\n");
@@ -174,7 +177,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     cl.name = req.username();
     cl.ip = req.ip();
     // Adding to db
-    fprintf(_log_level, "LOG: Save new user: %s\n", req.username().c_str());
+    fprintf(_log_level, "LOG: Save new user: %s conn fd: %d\n", req.username().c_str(), _user_list[ req.username() ].req_fd);
     _user_list[ req.username() ] = cl;
 
     /* Step 2: Return userid to client */
@@ -200,6 +203,10 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     return req.username();
 }
 
+/*
+* Get all the connected users on the server
+* returns the server response with all the connected users
+*/
 ServerMessage Server::get_connected_users( connectedUserRequest req ) {
     /* Verify if there are connected users */
     if( _user_list.empty() ) {
@@ -233,6 +240,7 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
 
 /*
 * Form error response with message msg
+* returns server response with error details
 */
 ServerMessage Server::error_response( string msg ) {
     /* Building response */
@@ -248,6 +256,7 @@ ServerMessage Server::error_response( string msg ) {
 
 /*
 * Start the server infinite listening loop
+* Listens for new connections, creates a new thread for new every connection.
 */
 void Server::start() {
     /* Server infinite loop */
@@ -261,7 +270,8 @@ void Server::start() {
 }
 
 /*
-* Handle a new connection
+* Handle a new connection added to the queue on a new thread
+* context is the server instance that is running
 */
 void * Server::new_conn_h( void * context ) {
     /* Get server context */
@@ -293,14 +303,14 @@ void * Server::new_conn_h( void * context ) {
         pthread_exit( NULL );
     }
 
-    /* Client infinite loop */
+    /* Server infinite loop */
     if( usr_nm != "" ){
         fprintf( s->_log_level, "LOG: Listenging for client '%s' messages on thread ID: %d\n", usr_nm.c_str(), ( int )tid);
+        char req[ MESSAGE_SIZE ];
         while( 1 ) {
             /* Read for new messages */
-            char req[ MESSAGE_SIZE ];
             s->read_request( req_ds.req_fd, req );
-            fprintf(stdout, "LOG: Incomming request from user %s...\n", usr_nm.c_str());
+            fprintf(stdout, "LOG: Incomming request from user %s on fd %d...\n", usr_nm.c_str(), req_ds.req_fd);
             ServerMessage res = s->process_request( s->parse_request( req ), req_ds );
             s->send_response( req_ds.req_fd, &req_ds.socket_info, res );
         }

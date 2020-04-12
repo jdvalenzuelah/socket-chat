@@ -3,7 +3,10 @@
 using namespace chat;
 
 Client::Client( char * username, FILE *log_level ) {
+    _user_id = -1;
+    _sock = -1;
     _username = username;
+    _log_level = log_level;
 }
 
 /*
@@ -61,7 +64,9 @@ int Client::log_in() {
 
     /* Step 2: Read ack from server */
     printf("Waiting for server ack\n");
-    ServerMessage res = read_message();
+    char ack_res[ MESSAGE_SIZE ];
+    int rack_res_sz = read_message( ack_res );
+    ServerMessage res = parse_response( ack_res );
 
     printf("Checking for response option\n");
     if( res.option() == 3 ) {
@@ -90,6 +95,7 @@ int Client::log_in() {
 
 /*
 * Get all connected users to server
+* returns client message with request details
 */
 ClientMessage Client::get_connected_request() {
     /* Build request */
@@ -121,7 +127,7 @@ int Client::send_request(ClientMessage request) {
 
     /* Send request to server */
     printf("Sending request\n");
-    if( send( _sock, c_str, sizeof(c_str), 0 ) < 0 ) {
+    if( sendto( _sock, c_str, strlen(c_str ), 0, (struct sockaddr*)&_serv_addr,sizeof( &_serv_addr ) ) < 0 ) {
         perror("Error sending request");
         return -1;
     }
@@ -134,17 +140,81 @@ int Client::send_request(ClientMessage request) {
 * Read for messages from server
 * Returns the read message
 */
-ServerMessage Client::read_message() {
-
+int Client::read_message( void *res ) {
     /* Read for server response */
-    char response[MESSAGE_SIZE] = {0};
-    if( recvfrom(_sock, response, MESSAGE_SIZE, 0, NULL, NULL) < 0 ) {
+    int rec_sz;
+    fprintf(_log_level, "DEBUG: Waiting for messages from server on fd %d\n", _sock);
+    if( ( rec_sz = recvfrom(_sock, res, MESSAGE_SIZE, 0, NULL, NULL) ) < 0 ) {
         perror("Error reading response");
         exit(EXIT_FAILURE);
     }
+    fprintf(_log_level, "DEBUG: Received message from server\n");
+    return rec_sz;
+}
 
-    ServerMessage res;
-    res.ParseFromString(response);
+/*
+* Parse the response to Server message
+*/
+ServerMessage Client::parse_response( char *res ) {
+    ServerMessage response;
+    response.ParseFromString(res);
+    return response;
+ }
 
-    return res;
+ /*
+ * Backgorund listener for server messages
+ */
+void * Client::bg_listener( void * context ) {
+    /* Get Client context */
+    Client * c = ( ( Client * )context );
+
+    pid_t tid = gettid();
+    fprintf( c->_log_level, "DEBUG: Staring client interface on thread ID: %d\n", ( int )tid);
+
+    /* read for messages */
+    while(1) {
+        string k;
+        cout << "Client loop \n";
+        cin >> k;
+        c->send_request( c->get_connected_request() );
+    }
+    pthread_exit( NULL );
+}
+
+ /*
+ * Start a new session on server on cli interface
+ */
+void Client::start_session() {
+    /* Verify a connection with server was stablished */
+    if ( _sock < 0 ){
+        fprintf( _log_level, "No connection to server was found\n" );
+        exit( EXIT_FAILURE );
+    }
+
+    /* Verify if client was registered on server */
+    if( _user_id < 0 ) { // No user has been registered
+        /* Attempt to log in to server */
+        if( log_in() < 0 ) {
+            fprintf(_log_level, "ERROR: Unable to log in to server\n");
+            exit( EXIT_FAILURE );
+        } else {
+            fprintf(_log_level, "LOG: Logged in to server user id %d\n", _user_id);
+        }
+    }
+    /* Create a new thread to listen for messages from server */
+    pthread_t thread;
+    //pthread_create( &thread, NULL, &bg_listener, this );
+
+    /* Start client listener */
+    while(1) {
+        string k;
+        cout << "Client loop \n";
+        cin >> k;
+        send_request( get_connected_request() );
+
+        char ack_res[ MESSAGE_SIZE ];
+        int ack_res_sz = read_message( ack_res );
+        printf("New messages was received from server\n");
+        ServerMessage res = parse_response( ack_res );
+    }
 }

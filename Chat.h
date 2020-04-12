@@ -35,11 +35,15 @@ class Client {
         int connect_server(char *server_address, int server_port);
         int log_in();
         int send_request(ClientMessage req);
-        ServerMessage read_message();
+        int read_message( void * buff );
+        ServerMessage parse_response( char *res );
         ClientMessage get_connected_request();
         ClientMessage change_status( string n_st );
         ClientMessage broadcast_message( string msg );
         ClientMessage direct_message( string msg );
+        void start_session();
+        void process_response( ServerMessage res );
+        static void * bg_listener( void * context );
     private:
         FILE *_log_level;
 };
@@ -84,7 +88,6 @@ class Server {
         ServerMessage change_user_status( ChangeStatusRequest req );
         ClientMessage parse_request( char *req );
         static void * new_conn_h( void * context );
-        static void * mt_handler( void * context );
     private:
         FILE *_log_level;
 };
