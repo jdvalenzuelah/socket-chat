@@ -49,7 +49,7 @@ int Server::initiate() {
 * Listen for messages
 * returns 0 on succes -1 on error
 */
-int Server::listen_messages() {
+int Server::listen_connections() {
     /* Accept incoming request */
     int addr_size = sizeof(_cl_addr);
     int req_fd = accept( _sock, (struct sockaddr *)&_cl_addr, (socklen_t*)&addr_size );
@@ -79,7 +79,7 @@ int Server::listen_messages() {
 */
 int Server::read_request( int fd, void *buf ) {
     /* Read request info on socket */
-    fprintf(_log_level, "DEBUG: Receiving request to buffer \n");
+    fprintf(_log_level, "DEBUG: Waiting for request of fd: %d \n", fd);
     if( recvfrom( fd, buf, MESSAGE_SIZE, 0, NULL, NULL ) < 0 ) {
         fprintf(_log_level, "ERROR: Error reading request");
         return -1;
@@ -103,7 +103,7 @@ int Server::send_response( int sock_fd, struct sockaddr_in *dest, ServerMessage 
     strcpy( c_str, dsrl_res.c_str() );
 
     /* Sending response */
-    fprintf(_log_level, "LOG: Sending response...\n");
+    fprintf(_log_level, "LOG: Sending response to fd %d...\n", sock_fd);
     if( sendto( sock_fd, c_str, strlen(c_str), 0, (struct sockaddr *) &dest, sizeof( &dest ) ) < 0 ) {
         fprintf(_log_level, "ERROR: Error sending response\n");
         return -1;
@@ -112,31 +112,36 @@ int Server::send_response( int sock_fd, struct sockaddr_in *dest, ServerMessage 
 }
 
 /*
-* Process incoming message and convert to appropiate Server response
+* Parse an incomming request
 */
-ServerMessage Server::process_request( char *req, client_info cl ) {
+ClientMessage Server::parse_request( char *req ) {
     /* deserealizing request */
     fprintf(_log_level, "DEBUG: Deserealizing request\n");
     ClientMessage cl_msg;
     cl_msg.ParseFromString(req);
+    return cl_msg;
+}
+
+/*
+* Process incoming message and convert to appropiate Server response
+*/
+ServerMessage Server::process_request( ClientMessage cl_msg, client_info cl ) {
+    /* Get option */
     int option = cl_msg.option();
 
     /* Process acording to option */
     fprintf(_log_level, "DEBUG: Processing request option: %d\n", option);
-    switch (option)
-    {
-    case 1:
-        return register_user( cl_msg.synchronize(), cl );
-    /*case 2:
-        return get_connected_users( cl_msg.connectedusers() );
-    case 3:
-        return change_user_status( cl_msg.changestatus() );
-    case 4:
-        return broadcast_message( cl_msg.broadcast() );
-    case 5:
-        return direct_message( cl_msg.directmessage() );*/
-    default:
-        return error_response("Invalid option\n");
+    switch (option) {
+        case 2:
+            return get_connected_users( cl_msg.connectedusers() );
+        /*case 3:
+            return change_user_status( cl_msg.changestatus() );
+        case 4:
+            return broadcast_message( cl_msg.broadcast() );
+        case 5:
+            return direct_message( cl_msg.directmessage() );*/
+        default:
+            return error_response("Invalid option\n");
     }
 }
 
@@ -144,7 +149,7 @@ ServerMessage Server::process_request( char *req, client_info cl ) {
 * Register new user on connected users
 * TODO: COMPLETE HANDSHAKE
 */
-ServerMessage Server::register_user( MyInfoSynchronize req, client_info cl ) {
+string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     fprintf(_log_level, "LOG: Registering new user\n");
 
     /* Step 1: Register user and assign user id */
@@ -152,13 +157,15 @@ ServerMessage Server::register_user( MyInfoSynchronize req, client_info cl ) {
     // Check if user name or ip is registered
     fprintf(_log_level, "DEBUG: Checking if username is in used..\n");
     if( _user_list.find( req.username() ) != _user_list.end() ) {
-        return error_response("Username already in use");
+        send_response( cl.req_fd, &cl.socket_info, error_response("Username already in use") );
+        return "";
     } else {
         fprintf(_log_level, "DEBUG: Checking if ip adddress is already connected to server\n");
         map<std::string, client_info>::iterator it;
         for( it = _user_list.begin(); it != _user_list.end(); it++ ) {
             if( req.ip() == it->second.ip ) {
-                return error_response("Ip already in use");
+                send_response( cl.req_fd, &cl.socket_info, error_response("Ip already in use") );
+                return "";
             }
         }
     }
@@ -178,28 +185,49 @@ ServerMessage Server::register_user( MyInfoSynchronize req, client_info cl ) {
     res.set_option(4);
     res.set_allocated_myinforesponse(myinfo_res);
 
-    /*
+    
     fprintf(_log_level, "DEBUG: Sending ACK to client..\n");
     send_response( _user_list[ req.username() ].req_fd, &_user_list[ req.username() ].socket_info, res );
-    */
-    /* Waiting for client ack */
-    /*
-    fprintf(_log_level, "DEBUG: Waiting for client ACK..\n");
-    if( listen_messages() < 0 ) {
-        return error_response("Error receiving client ACK\n");
-    }
-    */
 
     /* Reading client ACK */
-    /*
+    
     fprintf(_log_level, "DEBUG: Reading client ACK..\n");
     char ack[ MESSAGE_SIZE ];
-    struct client_info req_ds = _req_queue.front();
-    _req_queue.pop();
-    read_request( req_ds.req_fd, ack );
+    read_request( _user_list[ req.username() ].req_fd, ack );
 
     fprintf(_log_level, "DEBUG: Client ACK was process correctly.\n");
-    */
+    
+    return req.username();
+}
+
+ServerMessage Server::get_connected_users( connectedUserRequest req ) {
+    /* Verify if there are connected users */
+    if( _user_list.empty() ) {
+        return error_response("No connected users");
+    }
+
+    /* Get connected users */
+
+    map<std::string, client_info>::iterator it;
+    fprintf(_log_level, "DEBUG: Mapping connected users to response\n");
+    ConnectedUserResponse users;
+    for( it = _user_list.begin(); it != _user_list.end(); it++ ) {
+        ConnectedUser * c_user(new ConnectedUser);
+        c_user->set_username(it->first);
+        c_user->set_status(it->second.status);
+        c_user->set_userid(it->second.id);
+        c_user->set_ip(it->second.ip);
+        ConnectedUser * c_user_l = users.add_connectedusers();
+        c_user_l = c_user;
+        fprintf(_log_level, "DEBUG: Saving connected user to response\n");
+    }
+
+    /* Form response */
+    ServerMessage res;
+
+    std::string dsrl_res;
+    res.SerializeToString(&dsrl_res);
+
     return res;
 }
 
@@ -208,7 +236,7 @@ ServerMessage Server::register_user( MyInfoSynchronize req, client_info cl ) {
 */
 ServerMessage Server::error_response( string msg ) {
     /* Building response */
-    fprintf(_log_level, "LOG: Bulding error response with message: %s\n", msg);
+    fprintf(_log_level, "LOG: Bulding error response with message: %s\n", msg.c_str());
     ErrorResponse * err_msg(new ErrorResponse);
     err_msg->set_errormessage(msg);
 
@@ -224,34 +252,58 @@ ServerMessage Server::error_response( string msg ) {
 void Server::start() {
     /* Server infinite loop */
     pthread_t thread;
-    fprintf(_log_level, "LOG: Listening for messages on port %d...\n", _port);
+    fprintf(_log_level, "LOG: Listening for new connections on port %d...\n", _port);
     while(1) {
-        int client_id = listen_messages();
-        fprintf(_log_level, "DEBUG: Reading request on new thread...\n");
-        pthread_create( &thread, NULL, &*mt_handler, this );
+        int client_id = listen_connections();
+        fprintf(_log_level, "DEBUG: Processing connection on new thread...\n");
+        pthread_create( &thread, NULL, &*new_conn_h, this );
     }
 }
 
 /*
-* Function used on threads to handle requests
-* TODO: ADD ERROR HANDLER
+* Handle a new connection
 */
-void * Server::mt_handler( void * context ) {
-
+void * Server::new_conn_h( void * context ) {
     /* Get server context */
     Server * s = ( ( Server * )context );
 
-    /* Gettin thread ID*/
+    /* Getting thread ID*/
     pid_t tid = gettid();
-    fprintf( s->_log_level, "DEBUG: Running on thread ID: %d\n", ( int )tid);
+    fprintf( s->_log_level, "DEBUG: Staring connection process on thread ID: %d\n", ( int )tid);
 
-    /* Start processing request */
+    /* Start processing connection */
     struct client_info req_ds = s->_req_queue.front();
     s->_req_queue.pop();
     char req[ MESSAGE_SIZE ];
     s->read_request( req_ds.req_fd, req );
-    fprintf(stdout, "LOG: Processing request...\n");
-    ServerMessage res = s->process_request( req, req_ds );
-    s->send_response( req_ds.req_fd, &req_ds.socket_info, res );
+    
+    /* New connection must be new user */
+    ClientMessage in_req = s->parse_request( req );
+
+    int in_opt = in_req.option();
+
+    string usr_nm;
+
+    if( in_opt == 1 ) {
+        usr_nm = s->register_user( in_req.synchronize(), req_ds );
+    } else {
+        usr_nm = "";
+        s->send_response( req_ds.req_fd, &req_ds.socket_info, s->error_response( "You must log in first\n" ) );
+        fprintf( s->_log_level, "DEBUG: Unable to process new connection exiting thread ID: %d\n", ( int )tid);
+        pthread_exit( NULL );
+    }
+
+    /* Client infinite loop */
+    if( usr_nm != "" ){
+        fprintf( s->_log_level, "LOG: Listenging for client '%s' messages on thread ID: %d\n", usr_nm.c_str(), ( int )tid);
+        while( 1 ) {
+            /* Read for new messages */
+            char req[ MESSAGE_SIZE ];
+            s->read_request( req_ds.req_fd, req );
+            fprintf(stdout, "LOG: Incomming request from user %s...\n", usr_nm.c_str());
+            ServerMessage res = s->process_request( s->parse_request( req ), req_ds );
+            s->send_response( req_ds.req_fd, &req_ds.socket_info, res );
+        }
+    }
     pthread_exit( NULL );
 }

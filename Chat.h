@@ -31,7 +31,7 @@ class Client {
         struct sockaddr_in _serv_addr;
         int _user_id;
         char * _username;
-        Client( char * username );
+        Client( char * username, FILE *log_level = stdout );
         int connect_server(char *server_address, int server_port);
         int log_in();
         int send_request(ClientMessage req);
@@ -40,6 +40,8 @@ class Client {
         ClientMessage change_status( string n_st );
         ClientMessage broadcast_message( string msg );
         ClientMessage direct_message( string msg );
+    private:
+        FILE *_log_level;
 };
 #endif
 
@@ -69,17 +71,19 @@ class Server {
         Server( int port, FILE *log_level = stdout );
         int initiate();
         void start();
-        int listen_messages();
+        int listen_connections();
         int read_request( int fd, void *buf );
         int send_response( int sock_fd, struct sockaddr_in *dest, ServerMessage res );
-        ServerMessage process_request( char *req, client_info cl = {} );
+        ServerMessage process_request( ClientMessage cl_msg, client_info cl = {} );
         ServerMessage broadcast_message( BroadcastRequest req );
         ServerMessage send_to_all( string msg );
         ServerMessage direct_message( DirectMessageRequest req );
         ServerMessage error_response( string msg );
-        ServerMessage register_user( MyInfoSynchronize req, client_info cl );
+        string register_user( MyInfoSynchronize req, client_info cl );
         ServerMessage get_connected_users( connectedUserRequest req );
         ServerMessage change_user_status( ChangeStatusRequest req );
+        ClientMessage parse_request( char *req );
+        static void * new_conn_h( void * context );
         static void * mt_handler( void * context );
     private:
         FILE *_log_level;

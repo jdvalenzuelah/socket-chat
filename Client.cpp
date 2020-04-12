@@ -2,7 +2,7 @@
 
 using namespace chat;
 
-Client::Client( char * username ) {
+Client::Client( char * username, FILE *log_level ) {
     _username = username;
 }
 
@@ -65,7 +65,7 @@ int Client::log_in() {
 
     printf("Checking for response option\n");
     if( res.option() == 3 ) {
-        std::cout << "Server returned error: " << res.error().errormessage() << std::endl;
+        printf("Server returned error: %s", res.error().errormessage().c_str());
         return -1;
     } else if( res.option() != 4 ){
         perror("Unexpected response from server");
@@ -77,13 +77,13 @@ int Client::log_in() {
 
     /* Step 3: Send ack to server */
     // TODO MyInfoAcknowledge Not defined on protocol
-    /*MyInfoAcknowledge * my_info_ack(new MyInfoAcknowledge);
+    MyInfoAcknowledge * my_info_ack(new MyInfoAcknowledge);
     my_info_ack->set_userid(_user_id);
 
     ClientMessage res_ack;
     res_ack.set_option(10);
 
-    send_request(res_ack);*/
+    send_request(res_ack);
 
     return 0;
 }
@@ -145,11 +145,6 @@ ServerMessage Client::read_message() {
 
     ServerMessage res;
     res.ParseFromString(response);
-
-    if( res.option() == 3 ) {
-        std::cout << "Server returned error: " << res.error().errormessage() << std::endl;
-        exit(EXIT_FAILURE);
-    }
 
     return res;
 }

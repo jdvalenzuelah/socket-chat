@@ -36,6 +36,7 @@ int main(int argc, char *argv[]) {
         cout << "Press 1 to continue";
         cin >> opt;
         client.send_request( client.get_connected_request() );
+        client.read_message();
     }
 
     return 0;
