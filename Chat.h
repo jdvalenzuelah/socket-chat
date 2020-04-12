@@ -41,11 +41,16 @@ class Client {
         ClientMessage change_status( string n_st );
         ClientMessage broadcast_message( string msg );
         ClientMessage direct_message( string msg );
+        ClientMessage process_response( ServerMessage res );
         void start_session();
-        void process_response( ServerMessage res );
+        void stop_session();
         static void * bg_listener( void * context );
     private:
         FILE *_log_level;
+        int _close_issued;
+        pthread_mutex_t _stop_mutex;
+        int get_stopped_status();
+        void send_stop();
 };
 #endif
 

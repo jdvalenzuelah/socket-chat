@@ -58,7 +58,7 @@ int Server::listen_connections() {
         return -1;
     }
 
-    fprintf( _log_level, "LOG: Accepted request with fd: %d\n", req_fd );
+    fprintf( _log_level, "INFO: Accepted request with fd: %d\n", req_fd );
 
     /* Save request info to queue */
     struct client_info new_cl;
@@ -105,7 +105,7 @@ int Server::send_response( int sock_fd, struct sockaddr_in *dest, ServerMessage 
     strcpy( c_str, dsrl_res.c_str() );
 
     /* Sending response */
-    fprintf(_log_level, "LOG: Sending response to fd %d...\n", sock_fd);
+    fprintf(_log_level, "INFO: Sending response to fd %d...\n", sock_fd);
     if( sendto( sock_fd, c_str, strlen(c_str), 0, (struct sockaddr *) &dest, sizeof( &dest ) ) < 0 ) {
         fprintf(_log_level, "ERROR: Error sending response\n");
         return -1;
@@ -153,7 +153,7 @@ ServerMessage Server::process_request( ClientMessage cl_msg, client_info cl ) {
 * Unlike more other functions this one handles the responses to server and process client responses.
 */
 string Server::register_user( MyInfoSynchronize req, client_info cl ) {
-    fprintf(_log_level, "LOG: Registering new user\n");
+    fprintf(_log_level, "INFO: Registering new user\n");
 
     /* Step 1: Register user and assign user id */
 
@@ -177,7 +177,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     cl.name = req.username();
     cl.ip = req.ip();
     // Adding to db
-    fprintf(_log_level, "LOG: Save new user: %s conn fd: %d\n", req.username().c_str(), _user_list[ req.username() ].req_fd);
+    fprintf(_log_level, "INFO: Save new user: %s conn fd: %d\n", req.username().c_str(), _user_list[ req.username() ].req_fd);
     _user_list[ req.username() ] = cl;
 
     /* Step 2: Return userid to client */
@@ -231,6 +231,7 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
 
     /* Form response */
     ServerMessage res;
+    res.set_option(5);
 
     std::string dsrl_res;
     res.SerializeToString(&dsrl_res);
@@ -244,7 +245,7 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
 */
 ServerMessage Server::error_response( string msg ) {
     /* Building response */
-    fprintf(_log_level, "LOG: Bulding error response with message: %s\n", msg.c_str());
+    fprintf(_log_level, "INFO: Bulding error response with message: %s\n", msg.c_str());
     ErrorResponse * err_msg(new ErrorResponse);
     err_msg->set_errormessage(msg);
 
@@ -261,7 +262,7 @@ ServerMessage Server::error_response( string msg ) {
 void Server::start() {
     /* Server infinite loop */
     pthread_t thread;
-    fprintf(_log_level, "LOG: Listening for new connections on port %d...\n", _port);
+    fprintf(_log_level, "INFO: Listening for new connections on port %d...\n", _port);
     while(1) {
         int client_id = listen_connections();
         fprintf(_log_level, "DEBUG: Processing connection on new thread...\n");
@@ -305,14 +306,28 @@ void * Server::new_conn_h( void * context ) {
 
     /* Server infinite loop */
     if( usr_nm != "" ){
-        fprintf( s->_log_level, "LOG: Listenging for client '%s' messages on thread ID: %d\n", usr_nm.c_str(), ( int )tid);
+        fprintf( s->_log_level, "INFO: Listenging for client '%s' messages on thread ID: %d\n", usr_nm.c_str(), ( int )tid);
         char req[ MESSAGE_SIZE ];
         while( 1 ) {
             /* Read for new messages */
-            s->read_request( req_ds.req_fd, req );
-            fprintf(stdout, "LOG: Incomming request from user %s on fd %d...\n", usr_nm.c_str(), req_ds.req_fd);
+            int read_sz = s->read_request( req_ds.req_fd, req );
+
+            /* Check if it has error or is empty */
+            if( read_sz <= 0 ) {
+                /* Error will disconnect user */
+                fprintf(s->_log_level, "ERROR: Unable to read request\n");
+                fprintf(s->_log_level,"INFO: Disconnecting user %s on fd %d\n", usr_nm.c_str(), req_ds.req_fd);
+                s->_user_list.erase( usr_nm.c_str() );
+                fprintf(s->_log_level, "DEBUG: Closing Client fd\n");
+                close( req_ds.req_fd ); 
+                break;
+            }
+
+            /* Valid incomming request */
+            fprintf(s->_log_level, "INFO: Incomming request from user %s on fd %d...\n", usr_nm.c_str(), req_ds.req_fd);
             ServerMessage res = s->process_request( s->parse_request( req ), req_ds );
-            s->send_response( req_ds.req_fd, &req_ds.socket_info, res );
+            int response =s->send_response( req_ds.req_fd, &req_ds.socket_info, res );
+            fprintf(s->_log_level, "Sent %d bytes to fd %d\n", response, req_ds.req_fd);
         }
     }
     pthread_exit( NULL );

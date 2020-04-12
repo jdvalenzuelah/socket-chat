@@ -5,6 +5,8 @@ using namespace chat;
 Client::Client( char * username, FILE *log_level ) {
     _user_id = -1;
     _sock = -1;
+    _close_issued = 0;
+    pthread_mutex_init( &_stop_mutex, NULL );
     _username = username;
     _log_level = log_level;
 }
@@ -15,26 +17,26 @@ Client::Client( char * username, FILE *log_level ) {
 */
 int Client::connect_server(char *server_address, int server_port) {
     /* Create socket */
-    printf("Creating socket\n");
+    fprintf(_log_level,"INFO: Creating socket\n");
     if( ( _sock = socket(AF_INET, SOCK_STREAM, 0) ) < 0 ) {
-        perror("Error on socket creation");
+        fprintf(_log_level,"ERROR: Error on socket creation");
         return -1;
     }
 
     /* Save server info on ds*/
-    printf("Saving server info");
+    fprintf(_log_level, "DEBUG: Saving server info\n");
     _serv_addr.sin_family = AF_INET; 
     _serv_addr.sin_port = htons(server_port); // Convert to host byte order
-    printf("Converting to network address");
+    fprintf(_log_level,"Converting to network address");
     if(  inet_pton(AF_INET, server_address, &_serv_addr.sin_addr) <= 0 ) { // Convert ti network address
-        perror("Invalid server address\n");
+        fprintf(_log_level,"ERROR: Invalid server address\n");
         return -1;
     }
 
     /* Set up connection */
-    printf("Setting up connection\n");
+    fprintf(_log_level,"INFO: Setting up connection\n");
     if( connect(_sock, (struct sockaddr *)&_serv_addr, sizeof(_serv_addr)) < 0 ) {
-        perror("Unable to connect to server\n");
+        fprintf(_log_level,"ERROR: Unable to connect to server\n");
         return -1;
     }
 
@@ -48,7 +50,7 @@ int Client::connect_server(char *server_address, int server_port) {
 int Client::log_in() {
 
     /* Step 1: Sync option 1 */
-    printf("Building log in request");
+    fprintf(_log_level,"DEBUG: Building log in request\n");
     MyInfoSynchronize * my_info(new MyInfoSynchronize);
     char ip[256];
     gethostname(ip, sizeof(ip)); // Get client ip address
@@ -63,21 +65,21 @@ int Client::log_in() {
     send_request( msg );
 
     /* Step 2: Read ack from server */
-    printf("Waiting for server ack\n");
+    fprintf(_log_level,"DEBUG: Waiting for server ack\n");
     char ack_res[ MESSAGE_SIZE ];
     int rack_res_sz = read_message( ack_res );
     ServerMessage res = parse_response( ack_res );
 
-    printf("Checking for response option\n");
+    fprintf(_log_level,"INFO: Checking for response option\n");
     if( res.option() == 3 ) {
-        printf("Server returned error: %s", res.error().errormessage().c_str());
+        fprintf(_log_level,"ERROR: Server returned error: %s\n", res.error().errormessage().c_str());
         return -1;
     } else if( res.option() != 4 ){
-        perror("Unexpected response from server");
+        fprintf(_log_level,"ERROR: Unexpected response from server\n");
         return -1;
     }
 
-    printf("User id was returned by server\n");
+    fprintf(_log_level,"DEBUG: User id was returned by server\n");
     _user_id = res.myinforesponse().userid() ;
 
     /* Step 3: Send ack to server */
@@ -99,7 +101,7 @@ int Client::log_in() {
 */
 ClientMessage Client::get_connected_request() {
     /* Build request */
-    printf("Building connected request");
+    fprintf(_log_level,"DEBUG: Building connected request\n");
     connectedUserRequest * msg(new connectedUserRequest);
     msg->set_userid(_user_id);
     msg->set_username(_username);
@@ -118,7 +120,7 @@ ClientMessage Client::get_connected_request() {
 int Client::send_request(ClientMessage request) {
     /* Serealize string */
     int res_code = request.option();
-    printf("Serealizing request with option %d\n", res_code);
+    fprintf(_log_level,"DEBUG: Serealizing request with option %d\n", res_code);
     std::string srl_req;
     request.SerializeToString(&srl_req);
 
@@ -126,13 +128,13 @@ int Client::send_request(ClientMessage request) {
     strcpy( c_str, srl_req.c_str() );
 
     /* Send request to server */
-    printf("Sending request\n");
+    fprintf(_log_level,"INFO: Sending request\n");
     if( sendto( _sock, c_str, strlen(c_str ), 0, (struct sockaddr*)&_serv_addr,sizeof( &_serv_addr ) ) < 0 ) {
-        perror("Error sending request");
+        fprintf(_log_level,"ERROR: Error sending request");
         return -1;
     }
 
-    printf("Request was send to socket %d\n", _sock);
+    fprintf(_log_level,"DEBUG: Request was send to socket %d\n", _sock);
     return 0;
 }
 
@@ -145,7 +147,7 @@ int Client::read_message( void *res ) {
     int rec_sz;
     fprintf(_log_level, "DEBUG: Waiting for messages from server on fd %d\n", _sock);
     if( ( rec_sz = recvfrom(_sock, res, MESSAGE_SIZE, 0, NULL, NULL) ) < 0 ) {
-        perror("Error reading response");
+        fprintf(_log_level,"ERROR: Error reading response");
         exit(EXIT_FAILURE);
     }
     fprintf(_log_level, "DEBUG: Received message from server\n");
@@ -169,15 +171,16 @@ void * Client::bg_listener( void * context ) {
     Client * c = ( ( Client * )context );
 
     pid_t tid = gettid();
-    fprintf( c->_log_level, "DEBUG: Staring client interface on thread ID: %d\n", ( int )tid);
+    fprintf(c->_log_level, "DEBUG: Staring client interface on thread ID: %d\n", ( int )tid);
 
     /* read for messages */
-    while(1) {
-        string k;
-        cout << "Client loop \n";
-        cin >> k;
-        c->send_request( c->get_connected_request() );
+    while( c->get_stopped_status() == 0 ) {
+        char ack_res[ MESSAGE_SIZE ];
+        int ack_res_sz = c->read_message( ack_res );
+        fprintf(c->_log_level,"DEBUG: New messages was received from server\n");
+        ServerMessage res = c->parse_response( ack_res );
     }
+    fprintf(c->_log_level, "INFO: Exiting listening thread\n");
     pthread_exit( NULL );
 }
 
@@ -187,7 +190,7 @@ void * Client::bg_listener( void * context ) {
 void Client::start_session() {
     /* Verify a connection with server was stablished */
     if ( _sock < 0 ){
-        fprintf( _log_level, "No connection to server was found\n" );
+        fprintf(_log_level, "ERROR: No connection to server was found\n" );
         exit( EXIT_FAILURE );
     }
 
@@ -198,23 +201,52 @@ void Client::start_session() {
             fprintf(_log_level, "ERROR: Unable to log in to server\n");
             exit( EXIT_FAILURE );
         } else {
-            fprintf(_log_level, "LOG: Logged in to server user id %d\n", _user_id);
+            fprintf(_log_level, "INFO: Logged in to server user id %d\n", _user_id);
         }
     }
     /* Create a new thread to listen for messages from server */
     pthread_t thread;
-    //pthread_create( &thread, NULL, &bg_listener, this );
+    pthread_create( &thread, NULL, &bg_listener, this );
 
-    /* Start client listener */
+    /* Start client interface */
     while(1) {
         string k;
         cout << "Client loop \n";
         cin >> k;
+        if( k == "2" )
+            break;
         send_request( get_connected_request() );
-
-        char ack_res[ MESSAGE_SIZE ];
-        int ack_res_sz = read_message( ack_res );
-        printf("New messages was received from server\n");
-        ServerMessage res = parse_response( ack_res );
     }
+    stop_session();
+}
+
+/*
+* Stop the server session
+*/
+void Client::stop_session() {
+    fprintf(_log_level, "DEBUG: Starting shutting down process...\n");
+    close( _sock ); // Stop send an write operations
+    send_stop(); // Set stop flag
+}
+
+/*
+* Get the stopped flag to verify if Client::stop_session has been called
+*/
+int Client::get_stopped_status() {
+    int tmp = 0;
+    pthread_mutex_lock( &_stop_mutex );
+    tmp = _close_issued;
+    pthread_mutex_unlock( &_stop_mutex );
+    return tmp;
+}
+
+/*
+* Send stop sets the stopped flag to start the shutdown process
+*/
+void Client::send_stop() {
+    fprintf(_log_level, "DEBUG: Setting shutdown flag\n");
+    pthread_mutex_lock( &_stop_mutex );
+    _close_issued = 1;
+    pthread_mutex_unlock( &_stop_mutex );
+    fprintf(_log_level, "DEBUG: Shutdown flag set correctly\n");
 }
