@@ -11,6 +11,7 @@
 #include <stdarg.h>
 #include <pthread.h>
 #include <sys/types.h>
+#include <sys/syscall.h>
 #include "mensaje.pb.h"
 
 using namespace std;
@@ -22,6 +23,10 @@ using namespace chat;
 
 #ifndef MAX_QUEUE
 #define MAX_QUEUE 20
+#endif
+
+#ifndef gettid
+#define gettid() syscall(SYS_gettid)
 #endif
 
 #ifndef Client
