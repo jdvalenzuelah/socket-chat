@@ -31,7 +31,7 @@ cd src/
 
 Compiling protobuf messages
 ```
-make messages
+make message
 ```
 
 Compiling client
