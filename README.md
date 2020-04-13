@@ -6,10 +6,6 @@ Simple linux chat using sockets
 - Google's Protobuf
 - make
 
-```
-Give examples
-```
-
 ### Installing
 
 Clone repository
