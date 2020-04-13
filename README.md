@@ -27,8 +27,13 @@ sudo dnf install make
 sudo dnf install protobuf
 ```
 
-Compiling protobuf messages
+First cd in to src before compiling anything
 
+```
+cd src/
+```
+
+Compiling protobuf messages
 ```
 make messages
 ```
