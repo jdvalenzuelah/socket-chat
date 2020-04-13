@@ -6,6 +6,7 @@ Client::Client( char * username, FILE *log_level ) {
     _user_id = -1;
     _sock = -1;
     _close_issued = 0;
+    pthread_mutex_init(  &_res_queue_mutex, NULL );
     pthread_mutex_init( &_stop_mutex, NULL );
     _username = username;
     _log_level = log_level;
@@ -103,14 +104,59 @@ ClientMessage Client::get_connected_request() {
     /* Build request */
     fprintf(_log_level,"DEBUG: Building connected request\n");
     connectedUserRequest * msg(new connectedUserRequest);
-    msg->set_userid(_user_id);
-    msg->set_username(_username);
+    msg->set_userid( _user_id );
+    msg->set_username( _username );
 
-    ClientMessage req;
-    req.set_option(2);
-    req.set_allocated_connectedusers(msg);
+    ClientMessage res;
+    res.set_option( 2 );
+    res.set_allocated_connectedusers( msg );
     
-    return req;
+    return res;
+}
+
+/*
+* Build request to change the status to n_st
+*/
+ClientMessage Client::change_status( string n_st ) {
+    ChangeStatusRequest * n_st_res( new ChangeStatusRequest );
+    n_st_res->set_status( n_st );
+    ClientMessage res;
+    res.set_option( 3 );
+    res.set_allocated_changestatus( n_st_res );
+    return res;
+}
+
+/*
+* Build a request to broadcast msg to all connected users on server
+*/
+ClientMessage Client::broadcast_message( string msg ) {
+    BroadcastRequest * br_msg( new BroadcastRequest );
+    br_msg->set_message( msg );
+    ClientMessage res;
+    res.set_option( 4 );
+    res.set_allocated_broadcast( br_msg );
+    return res;
+}
+
+/*
+* Build request to send a direct message
+*/
+ClientMessage Client::direct_message( string msg, int dest_id, string dest_nm ) {
+    DirectMessageRequest * dm( new DirectMessageRequest );
+    dm->set_message( msg );
+    /* Verify optional params were passed */
+    if( dest_id > 0 ) {
+        dm->set_userid( dest_id );
+    }
+
+    if( dest_nm != "" ) {
+        dm->set_username( dest_nm );
+    }
+
+    ClientMessage res;
+    res.set_option( 5 );
+    res.set_allocated_directmessage( dm );
+    return res;
 }
 
 /*
@@ -164,7 +210,7 @@ ServerMessage Client::parse_response( char *res ) {
  }
 
  /*
- * Backgorund listener for server messages
+ * Backgorund listener for server messages and adds them to response queue
  */
 void * Client::bg_listener( void * context ) {
     /* Get Client context */
@@ -179,6 +225,8 @@ void * Client::bg_listener( void * context ) {
         int ack_res_sz = c->read_message( ack_res );
         fprintf(c->_log_level,"DEBUG: New messages was received from server\n");
         ServerMessage res = c->parse_response( ack_res );
+        fprintf(c->_log_level, "DEBUG: Adding response to queue\n" );
+        c->push_res( res );
     }
     fprintf(c->_log_level, "INFO: Exiting listening thread\n");
     pthread_exit( NULL );
@@ -249,4 +297,25 @@ void Client::send_stop() {
     _close_issued = 1;
     pthread_mutex_unlock( &_stop_mutex );
     fprintf(_log_level, "DEBUG: Shutdown flag set correctly\n");
+}
+
+/*
+* Add respoonse to queue using mutext locks
+*/
+void Client::push_res( ServerMessage el ) {
+    pthread_mutex_lock( &_res_queue_mutex );
+    _res_queue.push( el );
+    pthread_mutex_unlock( &_res_queue_mutex );
+}
+
+/*
+* Get element from response queue
+*/
+ServerMessage Client::pop_res() {
+    ServerMessage res;
+    pthread_mutex_lock( &_res_queue_mutex );
+    res = _res_queue.front();
+    _res_queue.pop();
+    pthread_mutex_unlock( &_res_queue_mutex );
+    return res;
 }

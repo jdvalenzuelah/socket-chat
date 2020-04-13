@@ -8,6 +8,8 @@ using namespace chat;
 Server::Server( int port, FILE *log_level ) {
     _port = port;
     _log_level = log_level;
+    pthread_mutex_init( &_user_list_mutex, NULL );
+    pthread_mutex_init( &_req_queue_mutex, NULL );
 }
 
 /*
@@ -65,7 +67,7 @@ int Server::listen_connections() {
     new_cl.id = _user_count;
     new_cl.socket_info = _cl_addr;
     new_cl.req_fd = req_fd;
-    _req_queue.push( new_cl );
+    req_push( new_cl );
     _user_count++;
 
     fprintf(_log_level, "DEBUG: Request added to queue id: %d\n", _user_count);
@@ -136,12 +138,12 @@ ServerMessage Server::process_request( ClientMessage cl_msg, client_info cl ) {
     switch (option) {
         case 2:
             return get_connected_users( cl_msg.connectedusers() );
-        /*case 3:
-            return change_user_status( cl_msg.changestatus() );
+        case 3:
+            return change_user_status( cl_msg.changestatus(), cl.name );
         case 4:
-            return broadcast_message( cl_msg.broadcast() );
+            return broadcast_message( cl_msg.broadcast(), cl );
         case 5:
-            return direct_message( cl_msg.directmessage() );*/
+            return direct_message( cl_msg.directmessage(), cl );
         default:
             return error_response("Invalid option\n");
     }
@@ -154,35 +156,36 @@ ServerMessage Server::process_request( ClientMessage cl_msg, client_info cl ) {
 */
 string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     fprintf(_log_level, "INFO: Registering new user\n");
-
+    map<std::string, client_info> all_users = get_all_users();
     /* Step 1: Register user and assign user id */
 
     // Check if user name or ip is registered
     fprintf(_log_level, "DEBUG: Checking if username is in used..\n");
-    if( _user_list.find( req.username() ) != _user_list.end() ) {
+    if( all_users.find( req.username() ) != all_users.end() ) {
         send_response( cl.req_fd, &cl.socket_info, error_response("Username already in use") );
         return "";
-    } else {
+    } /*else {
         fprintf(_log_level, "DEBUG: Checking if ip adddress is already connected to server\n");
         map<std::string, client_info>::iterator it;
-        for( it = _user_list.begin(); it != _user_list.end(); it++ ) {
+        for( it = all_users.begin(); it != all_users.end(); it++ ) {
             if( req.ip() == it->second.ip ) {
                 send_response( cl.req_fd, &cl.socket_info, error_response("Ip already in use") );
                 return "";
             }
         }
-    }
+    }*/
 
     // Adding mising data to client info
     cl.name = req.username();
     cl.ip = req.ip();
     // Adding to db
-    fprintf(_log_level, "INFO: Save new user: %s conn fd: %d\n", req.username().c_str(), _user_list[ req.username() ].req_fd);
-    _user_list[ req.username() ] = cl;
+    fprintf(_log_level, "INFO: Save new user: %s conn fd: %d\n", req.username().c_str(), cl.req_fd);
+    add_user( cl );
 
     /* Step 2: Return userid to client */
+    client_info conn_user = get_user(  req.username() );
     MyInfoResponse * myinfo_res(new MyInfoResponse);
-    myinfo_res->set_userid( _user_list[ req.username() ].id );
+    myinfo_res->set_userid( conn_user.id );
 
     ServerMessage res;
     res.set_option(4);
@@ -190,17 +193,17 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
 
     
     fprintf(_log_level, "DEBUG: Sending ACK to client..\n");
-    send_response( _user_list[ req.username() ].req_fd, &_user_list[ req.username() ].socket_info, res );
+    send_response( conn_user.req_fd, &conn_user.socket_info, res );
 
     /* Reading client ACK */
     
     fprintf(_log_level, "DEBUG: Reading client ACK..\n");
     char ack[ MESSAGE_SIZE ];
-    read_request( _user_list[ req.username() ].req_fd, ack );
+    read_request( conn_user.req_fd, ack );
 
     fprintf(_log_level, "DEBUG: Client ACK was process correctly.\n");
     
-    return req.username();
+    return conn_user.name;
 }
 
 /*
@@ -209,7 +212,8 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
 */
 ServerMessage Server::get_connected_users( connectedUserRequest req ) {
     /* Verify if there are connected users */
-    if( _user_list.empty() ) {
+    map<std::string, client_info> all_users = get_all_users();
+    if( all_users.empty() ) {
         return error_response("No connected users");
     }
 
@@ -218,7 +222,8 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
     map<std::string, client_info>::iterator it;
     fprintf(_log_level, "DEBUG: Mapping connected users to response\n");
     ConnectedUserResponse users;
-    for( it = _user_list.begin(); it != _user_list.end(); it++ ) {
+    
+    for( it = all_users.begin(); it != all_users.end(); it++ ) {
         ConnectedUser * c_user(new ConnectedUser);
         c_user->set_username(it->first);
         c_user->set_status(it->second.status);
@@ -237,6 +242,103 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
     res.SerializeToString(&dsrl_res);
 
     return res;
+}
+
+/*
+* Change the user status. Won't notify other users
+*/
+ServerMessage Server::change_user_status( ChangeStatusRequest req, string name ) {
+    string new_st = req.status();
+    int id;
+    pthread_mutex_lock( &_user_list_mutex );
+    _user_list[ name ].status = new_st;
+    id = _user_list[ name ].id;
+    pthread_mutex_unlock( &_user_list_mutex );
+
+    ChangeStatusResponse * ctr(new ChangeStatusResponse);
+    ctr->set_userid( id );
+    ctr->set_status( new_st );
+
+    ServerMessage res;
+    res.set_option( 6 );
+    res.set_allocated_changestatusresponse( ctr );
+    return res;
+}
+
+/*
+* Send response to all connected users
+*/
+void Server::send_all( ServerMessage res, string sender ) {
+    fprintf(_log_level, "INFO: Sending request to all connected clients\n");
+
+    /* Iterate trough all connected users and send message */
+    map<std::string, client_info> all_users = get_all_users();
+    map<std::string, client_info>::iterator it;
+    for( it = all_users.begin(); it != all_users.end(); it++ ) {
+        if( it->first != sender ) {
+            client_info user = it->second;
+            send_response( user.req_fd, &user.socket_info, res );
+        }
+    }
+}
+
+/*
+* Broadcast message to all users
+*/
+ServerMessage Server::broadcast_message( BroadcastRequest req, client_info sender ) {
+    string msg = req.message();
+    /* Notify all users of message */
+    BroadcastMessage * br_msg( new BroadcastMessage );
+    br_msg->set_message( msg );
+    br_msg->set_userid( sender.id );
+    ServerMessage all_res;
+    all_res.set_option( 1 );
+    all_res.set_allocated_broadcast( br_msg );
+    send_all( all_res, sender.name );
+    /* Return message status */
+    BroadcastResponse * res( new BroadcastResponse );
+    res->set_messagestatus( "sent" );
+    ServerMessage res_r;
+    res_r.set_option( 7 );
+    res_r.set_allocated_broadcastresponse( res );
+    return res_r;
+}
+
+/*
+* Send dm
+*/
+ServerMessage Server::direct_message( DirectMessageRequest req, client_info sender ) {
+    /* Verify that username or id was sent */
+    client_info rec;
+    if( req.has_username() ) {
+        rec = get_user( req.username() );
+    } else if( req.has_userid() ) {
+        rec = get_user( req.userid() );
+    } else {
+        return error_response( "You have to include either userid or username" );
+    }
+
+    /* Send dm to rec */
+    DirectMessage * dm_msg( new DirectMessage );
+    dm_msg->set_userid( to_string( sender.id ) );
+    dm_msg->set_message( req.message() );
+
+    ServerMessage dm_res;
+    dm_res.set_option( 2 );
+    dm_res.set_allocated_message( dm_msg );
+
+    send_response( rec.req_fd, &rec.socket_info, dm_res );
+
+    /* Response to sender */
+    DirectMessageResponse * res_msg( new DirectMessageResponse );
+    res_msg->set_messagestatus( "sent" );
+
+    ServerMessage res;
+    res.set_option( 8 );
+    res.set_allocated_directmessageresponse( res_msg );
+
+    return res;
+
 }
 
 /*
@@ -283,8 +385,7 @@ void * Server::new_conn_h( void * context ) {
     fprintf( s->_log_level, "DEBUG: Staring connection process on thread ID: %d\n", ( int )tid);
 
     /* Start processing connection */
-    struct client_info req_ds = s->_req_queue.front();
-    s->_req_queue.pop();
+    struct client_info req_ds = s->req_pop();
     char req[ MESSAGE_SIZE ];
     s->read_request( req_ds.req_fd, req );
     
@@ -307,6 +408,7 @@ void * Server::new_conn_h( void * context ) {
     /* Server infinite loop */
     if( usr_nm != "" ){
         fprintf( s->_log_level, "INFO: Listenging for client '%s' messages on thread ID: %d\n", usr_nm.c_str(), ( int )tid);
+        client_info user_ifo = s->get_user( usr_nm );
         char req[ MESSAGE_SIZE ];
         while( 1 ) {
             /* Read for new messages */
@@ -317,7 +419,7 @@ void * Server::new_conn_h( void * context ) {
                 /* Error will disconnect user */
                 fprintf(s->_log_level, "ERROR: Unable to read request\n");
                 fprintf(s->_log_level,"INFO: Disconnecting user %s on fd %d\n", usr_nm.c_str(), req_ds.req_fd);
-                s->_user_list.erase( usr_nm.c_str() );
+                s->delete_user( usr_nm );
                 fprintf(s->_log_level, "DEBUG: Closing Client fd\n");
                 close( req_ds.req_fd ); 
                 break;
@@ -325,10 +427,88 @@ void * Server::new_conn_h( void * context ) {
 
             /* Valid incomming request */
             fprintf(s->_log_level, "INFO: Incomming request from user %s on fd %d...\n", usr_nm.c_str(), req_ds.req_fd);
-            ServerMessage res = s->process_request( s->parse_request( req ), req_ds );
+            ServerMessage res = s->process_request( s->parse_request( req ), user_ifo );
             int response =s->send_response( req_ds.req_fd, &req_ds.socket_info, res );
             fprintf(s->_log_level, "Sent %d bytes to fd %d\n", response, req_ds.req_fd);
         }
     }
     pthread_exit( NULL );
+}
+
+/*
+* Pop request from queue using mutex
+*/
+client_info Server::req_pop() {
+    client_info req;
+    pthread_mutex_lock( &_req_queue_mutex );
+    req = _req_queue.front();
+    _req_queue.pop();
+    pthread_mutex_unlock( &_req_queue_mutex );
+    return req;
+}
+
+/*
+* Add request to queue using mutex
+*/
+void Server::req_push( client_info el ) {
+    pthread_mutex_lock( &_req_queue_mutex );
+    _req_queue.push( el );
+    pthread_mutex_unlock( &_req_queue_mutex );
+}
+
+/*
+* Get a user from the connected list using mutex
+*/
+client_info Server::get_user( string key ) {
+    client_info user;
+    pthread_mutex_lock( &_user_list_mutex );
+    user = _user_list[ key ];
+    pthread_mutex_unlock( &_user_list_mutex );
+    return user;
+}
+
+/*
+* Add a user to the connected list using mutex;
+*/
+void Server::add_user( client_info el ) {
+    pthread_mutex_lock( &_user_list_mutex );
+    _user_list[ el.name ] = el;
+    pthread_mutex_unlock( &_user_list_mutex );
+}
+
+/*
+* Get a copy of the connected users
+*/
+map<std::string, client_info> Server::get_all_users() {
+    map<std::string, client_info> tmp;
+    pthread_mutex_lock( &_user_list_mutex );
+    tmp = _user_list;
+    pthread_mutex_unlock( &_user_list_mutex );
+    return tmp;
+}
+
+/*
+* Delete user with key
+*/
+void Server::delete_user( string key ) {
+    pthread_mutex_lock( &_user_list_mutex );
+    _user_list.erase( key );
+    pthread_mutex_unlock( &_user_list_mutex );
+}
+
+/*
+* Get a user by its id
+*/
+client_info Server::get_user( int id ) {
+    map<std::string, client_info>::iterator it;
+    client_info usr;
+    pthread_mutex_lock( &_user_list_mutex );
+    for( it = _user_list.begin(); it != _user_list.end(); it++ ) {
+            if( it->second.id == id) {
+                usr = it->second;
+                break;
+            }
+        }
+    pthread_mutex_unlock( &_user_list_mutex );
+    return usr;
 }
