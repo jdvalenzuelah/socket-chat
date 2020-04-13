@@ -61,7 +61,7 @@ Server
 Client
 
 ```
-./server noobmaster69 127.0.0.1 8080
+./client noobmaster69 127.0.0.1 8080
 ```
 
 ## Authors
