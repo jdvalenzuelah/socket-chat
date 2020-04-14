@@ -164,7 +164,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     if( all_users.find( req.username() ) != all_users.end() ) {
         send_response( cl.req_fd, &cl.socket_info, error_response("Username already in use") );
         return "";
-    } /*else {
+    } else {
         fprintf(_log_level, "DEBUG: Checking if ip adddress is already connected to server\n");
         map<std::string, client_info>::iterator it;
         for( it = all_users.begin(); it != all_users.end(); it++ ) {
@@ -173,7 +173,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
                 return "";
             }
         }
-    }*/
+    }
 
     // Adding mising data to client info
     cl.name = req.username();
