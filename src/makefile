@@ -1,6 +1,6 @@
 IDIR=../include
 CC=g++
-CPPFLAGS=-I$(IDIR) -lprotobuf -pthread
+CPPFLAGS=-I$(IDIR) -lprotobuf -pthread -std=c++11
 
 ODIR=obj
 LDIR=../lib
