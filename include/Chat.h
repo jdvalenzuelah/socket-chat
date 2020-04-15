@@ -29,6 +29,32 @@ using namespace chat;
 #define gettid() syscall(SYS_gettid)
 #endif
 
+#ifndef connected_user
+struct connected_user {
+    int id;
+    string name;
+    string status;
+    string ip;
+};
+#endif
+
+#ifndef message_type
+enum message_type {
+    BROADCAST,
+    DIRECT
+};
+#endif
+
+
+#ifndef message_received
+struct message_received {
+    int from_id;
+    string from_username;
+    message_type type;
+    string message;
+};
+#endif
+
 #ifndef Client
 class Client {
     public:
@@ -42,23 +68,33 @@ class Client {
         int send_request(ClientMessage req);
         int read_message( void * buff );
         ServerMessage parse_response( char *res );
-        ClientMessage get_connected_request();
-        ClientMessage change_status( string n_st );
-        ClientMessage broadcast_message( string msg );
-        ClientMessage direct_message( string msg, int dest_id = -1, string dest_nm = "" );
-        ClientMessage process_response( ServerMessage res );
+        int get_connected_request();
+        int change_status( string n_st );
+        int broadcast_message( string msg );
+        int direct_message( string msg, int dest_id = -1, string dest_nm = "" );
+        int process_response( ServerMessage res );
+        string get_last_error();
         void start_session();
         void stop_session();
         static void * bg_listener( void * context );
     private:
         FILE *_log_level;
-        pthread_mutex_t _res_queue_mutex;
-        queue <ServerMessage> _res_queue;
+        pthread_mutex_t _noti_queue_mutex;
+        queue <message_received> _dm_queue;
+        queue <message_received> _br_queue;
+        pthread_mutex_t _connected_users_mutex;
+        map <string, connected_user> _connected_users;
+        map <string, connected_user> get_connected_users();
+        void set_connected_users( map <string, connected_user> cn_u );
+        pthread_mutex_t _error_queue_mutex;
+        queue <ErrorResponse> _error_queue;
+        void add_error( ErrorResponse err );
         int _close_issued;
         pthread_mutex_t _stop_mutex;
         int get_stopped_status();
         void send_stop();
-        ServerMessage pop_res();
+        message_received pop_res( message_type mtype );
+        int pop_to_buffer( message_type mtype, void * buf );
         void push_res( ServerMessage el );
 };
 #endif
@@ -75,7 +111,6 @@ struct client_info {
     string status;
 };
 #endif
-
 
 #ifndef Server
 class Server {

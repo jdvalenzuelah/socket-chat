@@ -6,8 +6,10 @@ Client::Client( char * username, FILE *log_level ) {
     _user_id = -1;
     _sock = -1;
     _close_issued = 0;
-    pthread_mutex_init(  &_res_queue_mutex, NULL );
+    pthread_mutex_init(  &_noti_queue_mutex, NULL );
     pthread_mutex_init( &_stop_mutex, NULL );
+    pthread_mutex_init( &_connected_users_mutex, NULL );
+    pthread_mutex_init( &_error_queue_mutex, NULL );
     _username = username;
     _log_level = log_level;
 }
@@ -55,6 +57,7 @@ int Client::log_in() {
     MyInfoSynchronize * my_info(new MyInfoSynchronize);
     char ip[256];
     gethostname(ip, sizeof(ip)); // Get client ip address
+    fprintf( _log_level, "DEBUG: Logging in from ip: %s\n", ip );
     my_info->set_username(_username);
     my_info->set_ip(ip);
 
@@ -100,48 +103,134 @@ int Client::log_in() {
 * Get all connected users to server
 * returns client message with request details
 */
-ClientMessage Client::get_connected_request() {
+int Client::get_connected_request() {
     /* Build request */
     fprintf(_log_level,"DEBUG: Building connected request\n");
     connectedUserRequest * msg(new connectedUserRequest);
     msg->set_userid( _user_id );
     msg->set_username( _username );
 
-    ClientMessage res;
-    res.set_option( 2 );
-    res.set_allocated_connectedusers( msg );
+    ClientMessage req;
+    req.set_option( 2 );
+    req.set_allocated_connectedusers( msg );
     
-    return res;
+    send_request( req );
+
+    char ack_res[ MESSAGE_SIZE ];
+    int ack_res_sz;
+
+    if( ( ack_res_sz = read_message( ack_res ) ) < 0 ) {
+        return -1;
+    }
+
+    /* Wait for message */
+    fprintf(_log_level,"DEBUG: New messages was received from server\n");
+    ServerMessage res = parse_response( ack_res );
+
+    /* Check for errors */
+    if( res.option() == 3 ) {
+        add_error( res.error() );
+        return -1;
+    } else if( res.option() != 5 ) {
+        return -1;
+    }
+
+    /* Save connected users */
+    map <string, connected_user> c_users;
+    int i;
+    for( i = 0; i < res.connecteduserresponse().connectedusers().size(); i++ ) {
+        ConnectedUser rec_user = res.connecteduserresponse().connectedusers().at( i );
+        struct connected_user lst_users;
+        lst_users.name = rec_user.username();
+        lst_users.id = rec_user.userid();
+        lst_users.status = rec_user.status();
+        lst_users.ip = rec_user.status();
+        c_users[ rec_user.username() ] = lst_users;
+    }
+
+    set_connected_users( c_users );
+
+    return 0;
 }
 
 /*
 * Build request to change the status to n_st
 */
-ClientMessage Client::change_status( string n_st ) {
+int Client::change_status( string n_st ) {
     ChangeStatusRequest * n_st_res( new ChangeStatusRequest );
     n_st_res->set_status( n_st );
-    ClientMessage res;
-    res.set_option( 3 );
-    res.set_allocated_changestatus( n_st_res );
-    return res;
+    ClientMessage req;
+    req.set_option( 3 );
+    req.set_allocated_changestatus( n_st_res );
+    
+    send_request( req );
+
+    char ack_res[ MESSAGE_SIZE ];
+    int ack_res_sz;
+
+    if( ( ack_res_sz = read_message( ack_res ) ) < 0 ) {
+        return -1;
+    }
+
+    /* Wait for message */
+    fprintf(_log_level,"DEBUG: New messages was received from server\n");
+    ServerMessage res = parse_response( ack_res );
+
+    /* Check for errors */
+    if( res.option() == 3 ) {
+        add_error( res.error() );
+        return -1;
+    } else if( res.option() != 6 ) {
+        return -1;
+    }
+
+    fprintf(_log_level, "LOG: Status received by server %s\n", res.changestatusresponse().status().c_str());
+
+    return 0;
+
 }
 
 /*
 * Build a request to broadcast msg to all connected users on server
 */
-ClientMessage Client::broadcast_message( string msg ) {
+int Client::broadcast_message( string msg ) {
     BroadcastRequest * br_msg( new BroadcastRequest );
     br_msg->set_message( msg );
-    ClientMessage res;
-    res.set_option( 4 );
-    res.set_allocated_broadcast( br_msg );
-    return res;
+    ClientMessage req;
+    req.set_option( 4 );
+    req.set_allocated_broadcast( br_msg );
+
+    send_request( req );
+    
+    char ack_res[ MESSAGE_SIZE ];
+    int ack_res_sz;
+
+    if( ( ack_res_sz = read_message( ack_res ) ) < 0 ) {
+        return -1;
+    }
+
+    /* Wait for message */
+    fprintf(_log_level,"DEBUG: New messages was received from server\n");
+    ServerMessage res = parse_response( ack_res );
+
+    /* Check for errors */
+    if( res.option() == 3 ) {
+        add_error( res.error() );
+        return -1;
+    } else if( res.option() != 6 ) {
+        return -1;
+    }
+
+    fprintf(_log_level, "LOG: Status received by server %s\n", res.broadcastresponse().messagestatus().c_str());
+
+    return 0;
+
 }
 
 /*
 * Build request to send a direct message
 */
-ClientMessage Client::direct_message( string msg, int dest_id, string dest_nm ) {
+int Client::direct_message( string msg, int dest_id, string dest_nm ) {
     DirectMessageRequest * dm( new DirectMessageRequest );
     dm->set_message( msg );
     /* Verify optional params were passed */
@@ -153,10 +242,33 @@ ClientMessage Client::direct_message( string msg, int dest_id, string dest_nm ) 
         dm->set_username( dest_nm );
     }
 
-    ClientMessage res;
-    res.set_option( 5 );
-    res.set_allocated_directmessage( dm );
-    return res;
+    ClientMessage req;
+    req.set_option( 5 );
+    req.set_allocated_directmessage( dm );
+    
+
+    char ack_res[ MESSAGE_SIZE ];
+    int ack_res_sz;
+
+    if( ( ack_res_sz = read_message( ack_res ) ) < 0 ) {
+        return -1;
+    }
+
+    /* Wait for message */
+    fprintf(_log_level,"DEBUG: New messages was received from server\n");
+    ServerMessage res = parse_response( ack_res );
+
+    /* Check for errors */
+    if( res.option() == 3 ) {
+        add_error( res.error() );
+        return -1;
+    } else if( res.option() != 6 ) {
+        return -1;
+    }
+
+    fprintf(_log_level, "LOG: Status received by server %s\n", res.broadcastresponse().messagestatus().c_str());
+
+    return 0;
 }
 
 /*
@@ -209,6 +321,11 @@ ServerMessage Client::parse_response( char *res ) {
     return response;
  }
 
+/*
+* Send request to server to change status
+*/
+
+
  /*
  * Backgorund listener for server messages and adds them to response queue
  */
@@ -230,42 +347,6 @@ void * Client::bg_listener( void * context ) {
     }
     fprintf(c->_log_level, "INFO: Exiting listening thread\n");
     pthread_exit( NULL );
-}
-
- /*
- * Start a new session on server on cli interface
- */
-void Client::start_session() {
-    /* Verify a connection with server was stablished */
-    if ( _sock < 0 ){
-        fprintf(_log_level, "ERROR: No connection to server was found\n" );
-        exit( EXIT_FAILURE );
-    }
-
-    /* Verify if client was registered on server */
-    if( _user_id < 0 ) { // No user has been registered
-        /* Attempt to log in to server */
-        if( log_in() < 0 ) {
-            fprintf(_log_level, "ERROR: Unable to log in to server\n");
-            exit( EXIT_FAILURE );
-        } else {
-            fprintf(_log_level, "INFO: Logged in to server user id %d\n", _user_id);
-        }
-    }
-    /* Create a new thread to listen for messages from server */
-    pthread_t thread;
-    pthread_create( &thread, NULL, &bg_listener, this );
-
-    /* Start client interface */
-    while(1) {
-        string k;
-        cout << "Client loop \n";
-        cin >> k;
-        if( k == "2" )
-            break;
-        send_request( get_connected_request() );
-    }
-    stop_session();
 }
 
 /*
@@ -300,22 +381,198 @@ void Client::send_stop() {
 }
 
 /*
+*  Get all the connected users on memory
+*/
+map <string, connected_user> Client::get_connected_users() {
+    map <string, connected_user> tmp;
+    pthread_mutex_lock( &_connected_users_mutex );
+    tmp = _connected_users;
+    pthread_mutex_unlock( &_connected_users_mutex );
+    return tmp;
+}
+
+/*
+* Refresh the list of connected users
+*/
+void Client::set_connected_users( map <string, connected_user> cn_u ) {
+    pthread_mutex_lock( &_connected_users_mutex );
+    _connected_users = cn_u;
+    pthread_mutex_unlock( &_connected_users_mutex );
+}
+
+/*
+* Add new error
+*/
+void Client::add_error( ErrorResponse err ) {
+    pthread_mutex_lock( &_error_queue_mutex );
+    _error_queue.push( err );
+    pthread_mutex_unlock( &_error_queue_mutex );
+}
+
+/*
+* Get the latest error
+*/
+string Client::get_last_error() {
+    string error_msg;
+    pthread_mutex_lock( &_error_queue_mutex );
+    error_msg = _error_queue.front().errormessage();
+    _error_queue.pop();
+    pthread_mutex_unlock( &_error_queue_mutex );
+    return error_msg;
+}
+
+/*
 * Add respoonse to queue using mutext locks
 */
 void Client::push_res( ServerMessage el ) {
-    pthread_mutex_lock( &_res_queue_mutex );
-    _res_queue.push( el );
-    pthread_mutex_unlock( &_res_queue_mutex );
+    int option = el.option();
+    message_received msg;
+    pthread_mutex_lock( &_noti_queue_mutex );
+    if( option == 2 ) {
+        msg.from_id = el.broadcast().userid();
+        msg.message = el.broadcast().message();
+        msg.type = BROADCAST;
+        _br_queue.push( msg );
+    } else if( option == 2 ) {
+        msg.from_username = el.message().userid();
+        msg.message = el.message().message();
+        msg.type = DIRECT;
+        _dm_queue.push( msg );
+    }
+    pthread_mutex_unlock( &_noti_queue_mutex );
 }
 
 /*
 * Get element from response queue
 */
-ServerMessage Client::pop_res() {
-    ServerMessage res;
-    pthread_mutex_lock( &_res_queue_mutex );
-    res = _res_queue.front();
-    _res_queue.pop();
-    pthread_mutex_unlock( &_res_queue_mutex );
+message_received Client::pop_res( message_type mtype ) {
+    message_received res;
+    pthread_mutex_lock( &_noti_queue_mutex );
+    if( mtype == BROADCAST ) {
+        res = _br_queue.front();
+        _br_queue.pop();
+    } else if( mtype == DIRECT ) {
+        res = _dm_queue.front();
+        _dm_queue.pop();
+    }
+    pthread_mutex_unlock( &_noti_queue_mutex );
     return res;
+}
+
+/*
+* Get element to buffer. Returns 0 on succes -1 if empty
+*/
+int Client::pop_to_buffer( message_type mtype, void * buf ) {
+    int res;
+    pthread_mutex_lock( &_noti_queue_mutex );
+    if( mtype == BROADCAST ) {
+        if( !_br_queue.empty() ) {
+            buf = &_br_queue.front();
+            _br_queue.pop();
+            res = 0;
+        } else {
+            res = -1;
+        }
+    } else if( mtype == DIRECT ) {
+        if( !_dm_queue.empty() ) {
+            buf = &_dm_queue.front();
+            _dm_queue.pop();
+            res = 0;
+        } else {
+            res = -1;
+        }
+    }
+    pthread_mutex_unlock( &_noti_queue_mutex );
+    return res;
+}
+
+
+ /*
+ * Start a new session on server on cli interface
+ */
+void Client::start_session() {
+    /* Verify a connection with server was stablished */
+    if ( _sock < 0 ){
+        fprintf(_log_level, "ERROR: No connection to server was found\n" );
+        exit( EXIT_FAILURE );
+    }
+
+    /* Verify if client was registered on server */
+    if( _user_id < 0 ) { // No user has been registered
+        /* Attempt to log in to server */
+        if( log_in() < 0 ) {
+            fprintf(_log_level, "ERROR: Unable to log in to server\n");
+            exit( EXIT_FAILURE );
+        } else {
+            fprintf(_log_level, "INFO: Logged in to server user id %d\n", _user_id);
+        }
+    }
+    /* Create a new thread to listen for messages from server */
+    pthread_t thread;
+    pthread_create( &thread, NULL, &bg_listener, this );
+
+    /* Start client interface */
+    while(1) {
+        int input;
+        printf("\n\n------ Bienvenido al chat %s ------\n", _username);
+        printf("Seleccione una opcion:\n");
+        printf("\t1. Enviar mensaje al canal publico\n");
+        printf("\t3. Enviar mensaje directo \n");
+        printf("\t4. Cambiar de estado \n");
+        printf("\t5. Ver usuarios conectados \n");
+        printf("\t6. Ver informacion de usuario \n");
+        printf("\t7. Ver canal general \n");
+        printf("\t8. Ver mensajes directos \n");
+        cin >> input;
+        
+        string br_msg, dm, dest_nm, n_st;
+        message_type msg_t;
+        int res_cd, no = 0;
+        switch ( input ) {
+            case 1:
+                printf("Ingrese mensaje a enviar:\n");
+                cin >> br_msg;
+                res_cd = broadcast_message( br_msg );
+                break;
+            case 3:
+                printf("Ingrese nombre de usuario del destinatario:\n");
+                cin >> dest_nm;
+                printf("Ingrese el mensaje a enviar: \n");
+                cin >> br_msg;
+                res_cd = direct_message( br_msg, -1, dest_nm );
+                break;
+            case 4:
+                printf("Ingrese el nuevo estado: \n");
+                cin >> n_st;
+                res_cd = change_status( n_st );
+                break;
+            case 5:
+                printf("Ver usuarios conectados: \n");
+                res_cd = get_connected_request();
+                break;
+            case 6:
+                printf("Ingrese usuario que desea ver: \n");
+                break;
+            case 7:
+                msg_t = BROADCAST;
+                no = 1;
+                break;
+            case 8:
+                msg_t = DIRECT;
+                no = 1;
+                break;
+            default:
+                break;
+        }
+        if( input == 9 )
+            break;
+        
+        if( no ) {
+            message_received * mtp;
+            while( pop_to_buffer( BROADCAST, &mtp ) == 0 ) {
+                cout << mtp->message << endl;
+            }
+        }
+    }
+    stop_session();
 }
