@@ -62,7 +62,7 @@ int Client::log_in() {
     my_info->set_ip(ip);
 
     ClientMessage msg;
-    msg.set_option(1);
+    msg.set_option( SYNCHRONIZED );
     msg.set_allocated_synchronize(my_info);
 
     /* Sending sync request to server */
@@ -75,10 +75,10 @@ int Client::log_in() {
     ServerMessage res = parse_response( ack_res );
 
     fprintf(_log_level,"INFO: Checking for response option\n");
-    if( res.option() == 3 ) {
+    if( res.option() == ERROR ) {
         fprintf(_log_level,"ERROR: Server returned error: %s\n", res.error().errormessage().c_str());
         return -1;
-    } else if( res.option() != 4 ){
+    } else if( res.option() != MYINFORESPONSE ){
         fprintf(_log_level,"ERROR: Unexpected response from server\n");
         return -1;
     }
@@ -92,7 +92,7 @@ int Client::log_in() {
     my_info_ack->set_userid(_user_id);
 
     ClientMessage res_ack;
-    res_ack.set_option(6);
+    res_ack.set_option( ACKNOWLEDGE );
 
     send_request(res_ack);
 
@@ -111,7 +111,7 @@ int Client::get_connected_request() {
     msg->set_username( _username );
 
     ClientMessage req;
-    req.set_option( 2 );
+    req.set_option( CONNECTEDUSER );
     req.set_allocated_connectedusers( msg );
     
     send_request( req );
@@ -128,10 +128,10 @@ int Client::get_connected_request() {
     ServerMessage res = parse_response( ack_res );
 
     /* Check for errors */
-    if( res.option() == 3 ) {
+    if( res.option() == ERROR ) {
         add_error( res.error() );
         return -1;
-    } else if( res.option() != 5 ) {
+    } else if( res.option() != CONNECTEDUSERRESPONSE ) {
         return -1;
     }
 
@@ -160,7 +160,7 @@ int Client::change_status( string n_st ) {
     ChangeStatusRequest * n_st_res( new ChangeStatusRequest );
     n_st_res->set_status( n_st );
     ClientMessage req;
-    req.set_option( 3 );
+    req.set_option( CHANGESTATUS );
     req.set_allocated_changestatus( n_st_res );
     
     send_request( req );
@@ -177,10 +177,10 @@ int Client::change_status( string n_st ) {
     ServerMessage res = parse_response( ack_res );
 
     /* Check for errors */
-    if( res.option() == 3 ) {
+    if( res.option() == ERROR ) {
         add_error( res.error() );
         return -1;
-    } else if( res.option() != 6 ) {
+    } else if( res.option() != CHANGESTATUSRESPONSE ) {
         return -1;
     }
 
@@ -197,7 +197,7 @@ int Client::broadcast_message( string msg ) {
     BroadcastRequest * br_msg( new BroadcastRequest );
     br_msg->set_message( msg );
     ClientMessage req;
-    req.set_option( 4 );
+    req.set_option( BROADCASTC );
     req.set_allocated_broadcast( br_msg );
 
     send_request( req );
@@ -214,11 +214,11 @@ int Client::broadcast_message( string msg ) {
     ServerMessage res = parse_response( ack_res );
 
     /* Check for errors */
-    if( res.option() == 3 ) {
+    if( res.option() == ERROR ) {
         add_error( res.error() );
         fprintf(_log_level,"ERROR: Error was returned by server: %s\n", res.error().errormessage().c_str());
         return -1;
-    } else if( res.option() != 7 ) {
+    } else if( res.option() != BROADCASTRESPONSE ) {
         fprintf(_log_level,"ERROR: Incorrect response was returned by server: %d\n", res.option());
         return -1;
     }
@@ -245,7 +245,7 @@ int Client::direct_message( string msg, int dest_id, string dest_nm ) {
     }
 
     ClientMessage req;
-    req.set_option( 5 );
+    req.set_option( DIRECTMESSAGE );
     req.set_allocated_directmessage( dm );
     
 
@@ -261,10 +261,10 @@ int Client::direct_message( string msg, int dest_id, string dest_nm ) {
     ServerMessage res = parse_response( ack_res );
 
     /* Check for errors */
-    if( res.option() == 3 ) {
+    if( res.option() == ERROR ) {
         add_error( res.error() );
         return -1;
-    } else if( res.option() != 6 ) {
+    } else if( res.option() != CHANGESTATUSRESPONSE ) {
         return -1;
     }
 

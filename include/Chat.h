@@ -45,6 +45,30 @@ enum message_type {
 };
 #endif
 
+#ifndef server_message_options
+enum server_message_options {
+    BROADCASTS = 1,
+    MESSAGE = 2,
+    ERROR = 3,
+    MYINFORESPONSE = 4,
+    CONNECTEDUSERRESPONSE = 5,
+    CHANGESTATUSRESPONSE = 6,
+    BROADCASTRESPONSE = 7,
+    DIRECTMESSAGERESPONSE = 8
+};
+#endif
+
+
+#ifndef client_message_options
+enum client_message_options {
+    SYNCHRONIZED = 1,
+    CONNECTEDUSER = 2,
+    CHANGESTATUS = 3,
+    BROADCASTC = 4,
+    DIRECTMESSAGE = 5,
+    ACKNOWLEDGE = 6
+};
+#endif
 
 #ifndef message_received
 struct message_received {

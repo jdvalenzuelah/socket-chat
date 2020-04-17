@@ -136,13 +136,13 @@ ServerMessage Server::process_request( ClientMessage cl_msg, client_info cl ) {
     /* Process acording to option */
     fprintf(_log_level, "DEBUG: Processing request option: %d\n", option);
     switch (option) {
-        case 2:
+        case CONNECTEDUSER:
             return get_connected_users( cl_msg.connectedusers() );
-        case 3:
+        case CHANGESTATUS:
             return change_user_status( cl_msg.changestatus(), cl.name );
-        case 4:
+        case BROADCAST:
             return broadcast_message( cl_msg.broadcast(), cl );
-        case 5:
+        case DIRECTMESSAGE:
             return direct_message( cl_msg.directmessage(), cl );
         default:
             return error_response("Invalid option\n");
@@ -188,7 +188,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     myinfo_res->set_userid( conn_user.id );
 
     ServerMessage res;
-    res.set_option(4);
+    res.set_option( MYINFORESPONSE );
     res.set_allocated_myinforesponse(myinfo_res);
 
     
@@ -236,7 +236,8 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
 
     /* Form response */
     ServerMessage res;
-    res.set_option(5);
+    res.set_option( CONNECTEDUSERRESPONSE );
+    res.set_allocated_connecteduserresponse( &users );
 
     std::string dsrl_res;
     res.SerializeToString(&dsrl_res);
@@ -260,7 +261,7 @@ ServerMessage Server::change_user_status( ChangeStatusRequest req, string name )
     ctr->set_status( new_st );
 
     ServerMessage res;
-    res.set_option( 6 );
+    res.set_option( CHANGESTATUSRESPONSE );
     res.set_allocated_changestatusresponse( ctr );
     return res;
 }
@@ -292,14 +293,14 @@ ServerMessage Server::broadcast_message( BroadcastRequest req, client_info sende
     br_msg->set_message( msg );
     br_msg->set_userid( sender.id );
     ServerMessage all_res;
-    all_res.set_option( 1 );
+    all_res.set_option( BROADCASTS );
     all_res.set_allocated_broadcast( br_msg );
     send_all( all_res, sender.name );
     /* Return message status */
     BroadcastResponse * res( new BroadcastResponse );
     res->set_messagestatus( "sent" );
     ServerMessage res_r;
-    res_r.set_option( 7 );
+    res_r.set_option( BROADCASTRESPONSE );
     res_r.set_allocated_broadcastresponse( res );
     return res_r;
 }
@@ -324,7 +325,7 @@ ServerMessage Server::direct_message( DirectMessageRequest req, client_info send
     dm_msg->set_message( req.message() );
 
     ServerMessage dm_res;
-    dm_res.set_option( 2 );
+    dm_res.set_option( MESSAGE );
     dm_res.set_allocated_message( dm_msg );
 
     send_response( rec.req_fd, &rec.socket_info, dm_res );
@@ -334,7 +335,7 @@ ServerMessage Server::direct_message( DirectMessageRequest req, client_info send
     res_msg->set_messagestatus( "sent" );
 
     ServerMessage res;
-    res.set_option( 8 );
+    res.set_option( DIRECTMESSAGERESPONSE );
     res.set_allocated_directmessageresponse( res_msg );
 
     return res;
@@ -352,7 +353,7 @@ ServerMessage Server::error_response( string msg ) {
     err_msg->set_errormessage(msg);
 
     ServerMessage res;
-    res.set_option(3);
+    res.set_option( ERROR );
     res.set_allocated_error(err_msg);
     return res;
 }
