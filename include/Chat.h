@@ -94,7 +94,7 @@ class Client {
         int get_stopped_status();
         void send_stop();
         message_received pop_res( message_type mtype );
-        int pop_to_buffer( message_type mtype, void * buf );
+        int pop_to_buffer( message_type mtype, message_received * buf );
         void push_res( ServerMessage el );
 };
 #endif

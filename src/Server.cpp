@@ -368,7 +368,7 @@ void Server::start() {
     while(1) {
         int client_id = listen_connections();
         fprintf(_log_level, "DEBUG: Processing connection on new thread...\n");
-        pthread_create( &thread, NULL, &*new_conn_h, this );
+        pthread_create( &thread, NULL, &new_conn_h, this );
     }
 }
 
@@ -428,8 +428,13 @@ void * Server::new_conn_h( void * context ) {
             /* Valid incomming request */
             fprintf(s->_log_level, "INFO: Incomming request from user %s on fd %d...\n", usr_nm.c_str(), req_ds.req_fd);
             ServerMessage res = s->process_request( s->parse_request( req ), user_ifo );
-            int response =s->send_response( req_ds.req_fd, &req_ds.socket_info, res );
-            fprintf(s->_log_level, "Sent %d bytes to fd %d\n", response, req_ds.req_fd);
+            
+            if( s->send_response( req_ds.req_fd, &req_ds.socket_info, res ) < -1 ) {
+                fprintf( s->_log_level, "ERROR: Error sending response to fd %d\n", req_ds.req_fd );
+            } else {
+                fprintf(s->_log_level, "DEBUG: Sent re to fd %d\n", req_ds.req_fd);
+            }
+
         }
     }
     pthread_exit( NULL );

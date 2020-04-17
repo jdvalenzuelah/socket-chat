@@ -216,8 +216,10 @@ int Client::broadcast_message( string msg ) {
     /* Check for errors */
     if( res.option() == 3 ) {
         add_error( res.error() );
+        fprintf(_log_level,"ERROR: Error was returned by server: %s\n", res.error().errormessage().c_str());
         return -1;
-    } else if( res.option() != 6 ) {
+    } else if( res.option() != 7 ) {
+        fprintf(_log_level,"ERROR: Incorrect response was returned by server: %d\n", res.option());
         return -1;
     }
 
@@ -339,7 +341,11 @@ void * Client::bg_listener( void * context ) {
     /* read for messages */
     while( c->get_stopped_status() == 0 ) {
         char ack_res[ MESSAGE_SIZE ];
-        int ack_res_sz = c->read_message( ack_res );
+        if( c->read_message( ack_res ) <= 0 ) {
+            fprintf( c->_log_level, "LOG: Server disconnected terminating session..." );
+            c->send_stop();
+            break;
+        }
         fprintf(c->_log_level,"DEBUG: New messages was received from server\n");
         ServerMessage res = c->parse_response( ack_res );
         fprintf(c->_log_level, "DEBUG: Adding response to queue\n" );
@@ -426,9 +432,10 @@ string Client::get_last_error() {
 */
 void Client::push_res( ServerMessage el ) {
     int option = el.option();
+    fprintf(_log_level, "LOG: Adding new message to queue option %d\n", option);
     message_received msg;
     pthread_mutex_lock( &_noti_queue_mutex );
-    if( option == 2 ) {
+    if( option == 1 ) {
         msg.from_id = el.broadcast().userid();
         msg.message = el.broadcast().message();
         msg.type = BROADCAST;
@@ -462,12 +469,12 @@ message_received Client::pop_res( message_type mtype ) {
 /*
 * Get element to buffer. Returns 0 on succes -1 if empty
 */
-int Client::pop_to_buffer( message_type mtype, void * buf ) {
+int Client::pop_to_buffer( message_type mtype, message_received * buf ) {
     int res;
     pthread_mutex_lock( &_noti_queue_mutex );
     if( mtype == BROADCAST ) {
         if( !_br_queue.empty() ) {
-            buf = &_br_queue.front();
+            *buf = _br_queue.front();
             _br_queue.pop();
             res = 0;
         } else {
@@ -475,7 +482,7 @@ int Client::pop_to_buffer( message_type mtype, void * buf ) {
         }
     } else if( mtype == DIRECT ) {
         if( !_dm_queue.empty() ) {
-            buf = &_dm_queue.front();
+            *buf = _dm_queue.front();
             _dm_queue.pop();
             res = 0;
         } else {
@@ -568,9 +575,13 @@ void Client::start_session() {
             break;
         
         if( no ) {
-            message_received * mtp;
-            while( pop_to_buffer( BROADCAST, &mtp ) == 0 ) {
-                cout << mtp->message << endl;
+            message_received mtp;
+            while( pop_to_buffer( msg_t, &mtp ) == 0 ) {
+                cout << "-------------------------------------" << endl;
+                cout << "ID from: " << mtp.from_id << endl;
+                cout << "User name from: " << mtp.from_username << endl;
+                cout << "Messgae" << mtp.message << endl;
+                cout << "-------------------------------------" << endl;
             }
         }
     }
