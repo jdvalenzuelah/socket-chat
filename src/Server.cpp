@@ -107,8 +107,8 @@ int Server::send_response( int sock_fd, struct sockaddr_in *dest, ServerMessage 
     strcpy( c_str, dsrl_res.c_str() );
 
     /* Sending response */
-    fprintf(_log_level, "INFO: Sending response to fd %d...\n", sock_fd);
-    if( sendto( sock_fd, c_str, strlen(c_str), 0, (struct sockaddr *) &dest, sizeof( &dest ) ) < 0 ) {
+    fprintf(_log_level, "INFO: Sending response %d bytes to fd %d...\n", sizeof( c_str ), sock_fd);
+    if( sendto( sock_fd, c_str, sizeof(c_str), 0, (struct sockaddr *) &dest, sizeof( &dest ) ) < 0 ) {
         fprintf(_log_level, "ERROR: Error sending response\n");
         return -1;
     }
@@ -320,7 +320,7 @@ ServerMessage Server::direct_message( DirectMessageRequest req, client_info send
 
     /* Send dm to rec */
     DirectMessage * dm_msg( new DirectMessage );
-    dm_msg->set_userid( to_string( sender.id ) );
+    dm_msg->set_userid( sender.id );
     dm_msg->set_message( req.message() );
 
     ServerMessage dm_res;

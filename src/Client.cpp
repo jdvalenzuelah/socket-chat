@@ -92,7 +92,7 @@ int Client::log_in() {
     my_info_ack->set_userid(_user_id);
 
     ClientMessage res_ack;
-    res_ack.set_option(10);
+    res_ack.set_option(6);
 
     send_request(res_ack);
 
