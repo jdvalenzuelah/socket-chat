@@ -114,32 +114,22 @@ int Client::get_connected_request() {
     req.set_option( CONNECTEDUSER );
     req.set_allocated_connectedusers( msg );
     
-    send_request( req );
-
-    char ack_res[ MESSAGE_SIZE ];
-    int ack_res_sz;
-
-    if( ( ack_res_sz = read_message( ack_res ) ) < 0 ) {
-        return -1;
+    if( send_request( req ) < 0 ) {
+        fprintf( _log_level, "ERROR: Unable to send request\n" );
     }
 
-    /* Wait for message */
-    fprintf(_log_level,"DEBUG: New messages was received from server\n");
-    ServerMessage res = parse_response( ack_res );
+    return 0;
+}
 
-    /* Check for errors */
-    if( res.option() == ERROR ) {
-        add_error( res.error() );
-        return -1;
-    } else if( res.option() != CONNECTEDUSERRESPONSE ) {
-        return -1;
-    }
-
+/*
+* Parse the connected users on a connected_clients map
+*/
+map <string, connected_user> Client::parse_connected_users( ConnectedUserResponse c_usr ) {
     /* Save connected users */
     map <string, connected_user> c_users;
     int i;
-    for( i = 0; i < res.connecteduserresponse().connectedusers().size(); i++ ) {
-        ConnectedUser rec_user = res.connecteduserresponse().connectedusers().at( i );
+    for( i = 0; i < c_usr.connectedusers().size(); i++ ) {
+        ConnectedUser rec_user = c_usr.connectedusers().at( i );
         struct connected_user lst_users;
         lst_users.name = rec_user.username();
         lst_users.id = rec_user.userid();
@@ -147,10 +137,8 @@ int Client::get_connected_request() {
         lst_users.ip = rec_user.status();
         c_users[ rec_user.username() ] = lst_users;
     }
-
     set_connected_users( c_users );
-
-    return 0;
+    return c_users;
 }
 
 /*
@@ -163,28 +151,9 @@ int Client::change_status( string n_st ) {
     req.set_option( CHANGESTATUS );
     req.set_allocated_changestatus( n_st_res );
     
-    send_request( req );
-
-    char ack_res[ MESSAGE_SIZE ];
-    int ack_res_sz;
-
-    if( ( ack_res_sz = read_message( ack_res ) ) < 0 ) {
-        return -1;
+    if( send_request( req ) < 0 ) {
+        fprintf( _log_level, "ERROR: Unable to send request\n" );
     }
-
-    /* Wait for message */
-    fprintf(_log_level,"DEBUG: New messages was received from server\n");
-    ServerMessage res = parse_response( ack_res );
-
-    /* Check for errors */
-    if( res.option() == ERROR ) {
-        add_error( res.error() );
-        return -1;
-    } else if( res.option() != CHANGESTATUSRESPONSE ) {
-        return -1;
-    }
-
-    fprintf(_log_level, "LOG: Status received by server %s\n", res.changestatusresponse().status().c_str());
 
     return 0;
 
@@ -200,30 +169,9 @@ int Client::broadcast_message( string msg ) {
     req.set_option( BROADCASTC );
     req.set_allocated_broadcast( br_msg );
 
-    send_request( req );
-    
-    char ack_res[ MESSAGE_SIZE ];
-    int ack_res_sz;
-
-    if( ( ack_res_sz = read_message( ack_res ) ) < 0 ) {
-        return -1;
+    if( send_request( req ) < 0 ) {
+        fprintf( _log_level, "ERROR: Unable to send request\n" );
     }
-
-    /* Wait for message */
-    fprintf(_log_level,"DEBUG: New messages was received from server\n");
-    ServerMessage res = parse_response( ack_res );
-
-    /* Check for errors */
-    if( res.option() == ERROR ) {
-        add_error( res.error() );
-        fprintf(_log_level,"ERROR: Error was returned by server: %s\n", res.error().errormessage().c_str());
-        return -1;
-    } else if( res.option() != BROADCASTRESPONSE ) {
-        fprintf(_log_level,"ERROR: Incorrect response was returned by server: %d\n", res.option());
-        return -1;
-    }
-
-    fprintf(_log_level, "LOG: Status received by server %s\n", res.broadcastresponse().messagestatus().c_str());
 
     return 0;
 
@@ -249,26 +197,9 @@ int Client::direct_message( string msg, int dest_id, string dest_nm ) {
     req.set_allocated_directmessage( dm );
     
 
-    char ack_res[ MESSAGE_SIZE ];
-    int ack_res_sz;
-
-    if( ( ack_res_sz = read_message( ack_res ) ) < 0 ) {
-        return -1;
+    if( send_request( req ) < 0 ) {
+        fprintf( _log_level, "ERROR: Unable to send request\n" );
     }
-
-    /* Wait for message */
-    fprintf(_log_level,"DEBUG: New messages was received from server\n");
-    ServerMessage res = parse_response( ack_res );
-
-    /* Check for errors */
-    if( res.option() == ERROR ) {
-        add_error( res.error() );
-        return -1;
-    } else if( res.option() != CHANGESTATUSRESPONSE ) {
-        return -1;
-    }
-
-    fprintf(_log_level, "LOG: Status received by server %s\n", res.broadcastresponse().messagestatus().c_str());
 
     return 0;
 }
@@ -349,10 +280,34 @@ void * Client::bg_listener( void * context ) {
         fprintf(c->_log_level,"DEBUG: New messages was received from server\n");
         ServerMessage res = c->parse_response( ack_res );
         fprintf(c->_log_level, "DEBUG: Adding response to queue\n" );
+        
+        /* Process acoorging to response, we ignore status responses */
+        switch ( res.option() ) {
+            case BROADCASTS:
+            case MESSAGE:
+                c->push_res( res ); 
+                break;
+            case CONNECTEDUSERRESPONSE:
+                c->parse_connected_users( res.connecteduserresponse() );
+                break;
+            case ERROR:
+                c->handle_error( res.error() );
+                break;
+            default:
+                break;
+        }
+        
         c->push_res( res );
     }
     fprintf(c->_log_level, "INFO: Exiting listening thread\n");
     pthread_exit( NULL );
+}
+
+/*
+* Handle error responses from server
+*/
+void Client::handle_error( ErrorResponse err ) {
+    add_error(err);
 }
 
 /*
@@ -413,6 +368,22 @@ void Client::add_error( ErrorResponse err ) {
     pthread_mutex_lock( &_error_queue_mutex );
     _error_queue.push( err );
     pthread_mutex_unlock( &_error_queue_mutex );
+}
+
+/*
+* Get the last error message on queue
+*/
+int Client::pop_error_message( string * buf ) {
+    int res = 0;
+    pthread_mutex_lock( &_error_queue_mutex );
+    if( !_error_queue.empty() ) {
+        *buf = _error_queue.front().errormessage();
+        _error_queue.pop();
+    } else {
+        res = -1;
+    }
+    pthread_mutex_unlock( &_error_queue_mutex );
+    return res;
 }
 
 /*
@@ -575,13 +546,19 @@ void Client::start_session() {
             break;
         
         if( no ) {
-            message_received mtp;
-            while( pop_to_buffer( msg_t, &mtp ) == 0 ) {
-                cout << "-------------------------------------" << endl;
-                cout << "ID from: " << mtp.from_id << endl;
-                cout << "User name from: " << mtp.from_username << endl;
-                cout << "Messgae" << mtp.message << endl;
-                cout << "-------------------------------------" << endl;
+            string err;
+
+            if( pop_error_message( &err ) == 0 ) {
+                cout << "Error: " << err << endl;
+            } else {
+                message_received mtp;
+                while( pop_to_buffer( msg_t, &mtp ) == 0 ) {
+                    cout << "-------------------------------------" << endl;
+                    cout << "ID from: " << mtp.from_id << endl;
+                    cout << "User name from: " << mtp.from_username << endl;
+                    cout << "Messgae" << mtp.message << endl;
+                    cout << "-------------------------------------" << endl;
+                }
             }
         }
     }

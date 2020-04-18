@@ -100,6 +100,7 @@ class Client {
         string get_last_error();
         void start_session();
         void stop_session();
+        void handle_error( ErrorResponse err );
         static void * bg_listener( void * context );
     private:
         FILE *_log_level;
@@ -113,6 +114,7 @@ class Client {
         pthread_mutex_t _error_queue_mutex;
         queue <ErrorResponse> _error_queue;
         void add_error( ErrorResponse err );
+        int pop_error_message( string * buf );
         int _close_issued;
         pthread_mutex_t _stop_mutex;
         int get_stopped_status();
@@ -120,6 +122,7 @@ class Client {
         message_received pop_res( message_type mtype );
         int pop_to_buffer( message_type mtype, message_received * buf );
         void push_res( ServerMessage el );
+        map <string, connected_user> parse_connected_users( ConnectedUserResponse c_usr );
 };
 #endif
 
