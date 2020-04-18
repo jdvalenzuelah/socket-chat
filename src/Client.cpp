@@ -556,7 +556,7 @@ void Client::start_session() {
                     cout << "-------------------------------------" << endl;
                     cout << "ID from: " << mtp.from_id << endl;
                     cout << "User name from: " << mtp.from_username << endl;
-                    cout << "Messgae" << mtp.message << endl;
+                    cout << "Message: " << mtp.message << endl;
                     cout << "-------------------------------------" << endl;
                 }
             }
