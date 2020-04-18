@@ -23,11 +23,7 @@ sudo dnf install make
 sudo dnf install protobuf
 ```
 
-First cd in to src before compiling anything
-
-```
-cd src/
-```
+If you encountered any issues after installing protobuf follow the instructions on [official repository](https://github.com/protocolbuffers/protobuf) 
 
 Compiling protobuf messages
 ```
@@ -59,6 +55,8 @@ Client
 ```
 ./client noobmaster69 127.0.0.1 8080
 ```
+
+By default a command line text interface is shown, if you would like to use a graphical user interface.
 
 ## Authors
 
