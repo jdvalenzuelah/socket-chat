@@ -374,13 +374,12 @@ void Client::add_error( ErrorResponse err ) {
 * Get the last error message on queue
 */
 int Client::pop_error_message( string * buf ) {
-    int res = 0;
+    int res = -1;
     pthread_mutex_lock( &_error_queue_mutex );
     if( !_error_queue.empty() ) {
         *buf = _error_queue.front().errormessage();
         _error_queue.pop();
-    } else {
-        res = -1;
+        res = 0;
     }
     pthread_mutex_unlock( &_error_queue_mutex );
     return res;
@@ -442,24 +441,32 @@ message_received Client::pop_res( message_type mtype ) {
 */
 int Client::pop_to_buffer( message_type mtype, message_received * buf ) {
     int res;
+    fprintf(_log_level, "DEBUG: Locking noti queue mutex\n");
     pthread_mutex_lock( &_noti_queue_mutex );
     if( mtype == BROADCAST ) {
+        fprintf(_log_level, "DEBUG: Getting broadcast messages\n");
         if( !_br_queue.empty() ) {
+            fprintf(_log_level, "DEBUG: Not empty, popping from queue\n");
             *buf = _br_queue.front();
             _br_queue.pop();
             res = 0;
         } else {
+            fprintf(_log_level, "DEBUG: Empty nothing to show\n");
             res = -1;
         }
     } else if( mtype == DIRECT ) {
+        fprintf(_log_level, "DEBUG: Getting direct messages\n");
         if( !_dm_queue.empty() ) {
+            fprintf(_log_level, "DEBUG: Not empty, popping from queue\n");
             *buf = _dm_queue.front();
             _dm_queue.pop();
             res = 0;
         } else {
+            fprintf(_log_level, "DEBUG: Empty nothing to show\n");
             res = -1;
         }
     }
+    fprintf(_log_level, "DEBUG: Unlocking noti queue mutex\n");
     pthread_mutex_unlock( &_noti_queue_mutex );
     return res;
 }

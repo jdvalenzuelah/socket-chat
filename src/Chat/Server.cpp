@@ -140,7 +140,7 @@ ServerMessage Server::process_request( ClientMessage cl_msg, client_info cl ) {
             return get_connected_users( cl_msg.connectedusers() );
         case CHANGESTATUS:
             return change_user_status( cl_msg.changestatus(), cl.name );
-        case BROADCAST:
+        case BROADCASTC:
             return broadcast_message( cl_msg.broadcast(), cl );
         case DIRECTMESSAGE:
             return direct_message( cl_msg.directmessage(), cl );
@@ -238,9 +238,6 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
     ServerMessage res;
     res.set_option( CONNECTEDUSERRESPONSE );
     res.set_allocated_connecteduserresponse( &users );
-
-    std::string dsrl_res;
-    res.SerializeToString(&dsrl_res);
 
     return res;
 }
