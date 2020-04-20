@@ -578,6 +578,7 @@ void Client::start_session() {
             case 1:
                 cout << "Ingrese mensaje a enviar:\n";
                 getline( cin, br_msg );
+                res_cd = broadcast_message( br_msg );
                 break;
             case 2:
                 printf("Ingrese nombre de usuario del destinatario:\n");
@@ -642,10 +643,13 @@ void Client::start_session() {
                 msg_t = DIRECT;
                 no = 1;
                 break;
+            case 8:
+                break;
             default:
+                printf("Opcion invalida\n");
                 break;
         }
-        sleep( 1 );
+        sleep( 2 );
         if( input == 8 )
             break;
     }
