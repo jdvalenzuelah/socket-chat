@@ -111,6 +111,8 @@ class Client {
         map <string, connected_user> _connected_users;
         map <string, connected_user> get_connected_users();
         void set_connected_users( map <string, connected_user> cn_u );
+        connected_user get_connected_user( string name );
+        connected_user get_connected_user( int id );
         pthread_mutex_t _error_queue_mutex;
         queue <ErrorResponse> _error_queue;
         void add_error( ErrorResponse err );

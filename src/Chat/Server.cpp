@@ -184,6 +184,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
 
     // Adding mising data to client info
     cl.name = req.username();
+    cl.status = "activo";
 
     // Adding to db
     fprintf(_log_level, "INFO: Save new user: %s conn fd: %d\n", req.username().c_str(), cl.req_fd);
@@ -231,10 +232,11 @@ ServerMessage Server::get_connected_users() {
     ConnectedUserResponse * users( new ConnectedUserResponse );
     
     for( it = all_users.begin(); it != all_users.end(); it++ ) {
-        ConnectedUser * c_user(new ConnectedUser);
-        c_user->set_username(it->first);
         ConnectedUser * c_user_l = users->add_connectedusers();
-        c_user_l = c_user;
+        fprintf(_log_level, "DEBUG: Connected user %s\n", it->first.c_str());
+        c_user_l->set_username(it->first);
+        c_user_l->set_status(it->second.status);
+        c_user_l->set_userid(it->second.id);
         fprintf(_log_level, "DEBUG: Saving connected user to response\n");
     }
 

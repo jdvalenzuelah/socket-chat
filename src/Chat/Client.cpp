@@ -465,8 +465,35 @@ int Client::pop_to_buffer( message_type mtype, message_received * buf ) {
     return res;
 }
 
+/*
+* Get a connected users info by its username
+*/
+connected_user Client::get_connected_user( string name ) {
+    connected_user tmp;
+    pthread_mutex_lock( &_connected_users_mutex );
+    tmp = _connected_users[ name ];
+    pthread_mutex_unlock( &_connected_users_mutex );
+    return tmp;
+}
 
- /*
+/*
+* Get a connected users info by its id
+*/
+connected_user Client::get_connected_user( int id ) {
+    connected_user tmp;
+    map<string, connected_user>::iterator it;
+    pthread_mutex_lock( &_connected_users_mutex );
+    for( it = _connected_users.begin(); it != _connected_users.end(); it++ ){
+        if( it->second.id == id )
+            tmp = it->second;
+    }
+    pthread_mutex_unlock( &_connected_users_mutex );
+    return tmp;
+}
+
+
+
+  /*
  * Start a new session on server on cli interface
  */
 void Client::start_session() {
@@ -491,77 +518,136 @@ void Client::start_session() {
     pthread_create( &thread, NULL, &bg_listener, this );
 
     /* Start client interface */
+    int no = 0;
+    message_type msg_t;
     while(1) {
+
+        if( no ) {
+            string err;
+
+            if( pop_error_message( &err ) == 0 ) {
+                cout << "Error: " << err << endl;
+            } else if( no == 1 ) {
+                message_received mtp;
+                while( pop_to_buffer( msg_t, &mtp ) == 0 ) {
+                    cout << "--------- Mensages ---------" << endl;
+                    cout << "ID from: " << mtp.from_id << endl;
+                    cout << "User name from: " << mtp.from_username << endl;
+                    cout << "Message: " << mtp.message << endl;
+                    cout << "----------------------------" << endl;
+                }
+            } else if( no == 2 ) {
+                map <string, connected_user> tmp = get_connected_users();
+                map<string, connected_user>::iterator it;
+                cout << "--------- Usuarios conetados ---------" << endl;
+                for( it = tmp.begin(); it != tmp.end(); it++ ) {
+                    cout << "User id: " << it->second.id << endl;
+                    cout << "User name: " << it->first << endl;
+                    cout << "User status: " << it->second.status << endl;
+                    cout << "--------------------------------------" << endl;
+                }
+            }
+        }
+        
         int input;
         printf("\n\n------ Bienvenido al chat %s ------\n", _username);
         printf("Seleccione una opcion:\n");
         printf("\t1. Enviar mensaje al canal publico\n");
-        printf("\t3. Enviar mensaje directo \n");
-        printf("\t4. Cambiar de estado \n");
-        printf("\t5. Ver usuarios conectados \n");
-        printf("\t6. Ver informacion de usuario \n");
-        printf("\t7. Ver canal general \n");
-        printf("\t8. Ver mensajes directos \n");
+        printf("\t2. Enviar mensaje directo \n");
+        printf("\t3. Cambiar de estado \n");
+        printf("\t4. Ver usuarios conectados \n");
+        printf("\t5. Ver informacion de usuario \n");
+        printf("\t6. Ver canal general \n");
+        printf("\t7. Ver mensajes directos \n");
+        printf("\t8. Salir \n");
         cin >> input;
+        string t;
+        getline(cin, t);
         
-        string br_msg, dm, dest_nm, n_st;
-        message_type msg_t;
-        int res_cd, no = 0;
+        string br_msg = "";
+        string dm = "";
+        string dest_nm = "";
+        int res_cd;
+        no = 0;
+        int st;
+        string n_sts = "activo";
+        int mm_ui, usr_id;
+        string usr;
+        connected_user c_usr;
         switch ( input ) {
             case 1:
-                printf("Ingrese mensaje a enviar:\n");
-                cin >> br_msg;
-                res_cd = broadcast_message( br_msg );
+                cout << "Ingrese mensaje a enviar:\n";
+                getline( cin, br_msg );
                 break;
-            case 3:
+            case 2:
                 printf("Ingrese nombre de usuario del destinatario:\n");
-                cin >> dest_nm;
+                getline( cin, dest_nm );
                 printf("Ingrese el mensaje a enviar: \n");
-                cin >> br_msg;
+                getline( cin, dm );
                 res_cd = direct_message( br_msg, -1, dest_nm );
                 break;
+            case 3:
+                printf("Seleccione un estado: \n");
+                printf("1. Activo\n");
+                printf("2. Inctivo\n");
+                printf("3. Ocupado\n");
+                cin >> st;
+                getline(cin, t);
+                if(st == 1)
+                    n_sts = "activo";
+                else if( st == 2 )
+                    n_sts = "inactivo";
+                else if( st == 3 )
+                    n_sts = "ocupado";
+                res_cd = change_status( n_sts );
+                break;
             case 4:
-                printf("Ingrese el nuevo estado: \n");
-                cin >> n_st;
-                res_cd = change_status( n_st );
+                res_cd = get_connected_request();
+                no = 2;
                 break;
             case 5:
-                printf("Ver usuarios conectados: \n");
-                res_cd = get_connected_request();
+                printf("Buscar usuario por:\n");
+                printf("1. ID de usuario\n");
+                printf("2. Nombre de usuario\n");
+                cin >> mm_ui;
+                getline(cin, t);
+                switch ( mm_ui ){
+                    case 1:
+                        printf("Ingresa el id de usuario:\n");
+                        cin >> usr_id;
+                        getline(cin, t);
+                        c_usr = get_connected_user( usr_id );
+                        break;
+                    case 2:
+                        printf("Ingresa el nombre de usuario:\n");
+                        getline(cin, usr);
+                        c_usr = get_connected_user( usr );
+                        break;
+                    default:
+                        printf("Opcion invalida!");
+                        break;
+                }
+                cout << "--------------------------------------" << endl;
+                cout << "User id: " << c_usr.id << endl;
+                cout << "User name: " << c_usr.name << endl;
+                cout << "User status: " << c_usr.status << endl;
+                cout << "User IP: " << c_usr.ip << endl;
+                cout << "--------------------------------------" << endl;
                 break;
             case 6:
-                printf("Ingrese usuario que desea ver: \n");
-                break;
-            case 7:
                 msg_t = BROADCAST;
                 no = 1;
                 break;
-            case 8:
+            case 7:
                 msg_t = DIRECT;
                 no = 1;
                 break;
             default:
                 break;
         }
-        if( input == 9 )
+        sleep( 1 );
+        if( input == 8 )
             break;
-        
-        if( no ) {
-            string err;
-
-            if( pop_error_message( &err ) == 0 ) {
-                cout << "Error: " << err << endl;
-            } else {
-                message_received mtp;
-                while( pop_to_buffer( msg_t, &mtp ) == 0 ) {
-                    cout << "-------------------------------------" << endl;
-                    cout << "ID from: " << mtp.from_id << endl;
-                    cout << "User name from: " << mtp.from_username << endl;
-                    cout << "Message: " << mtp.message << endl;
-                    cout << "-------------------------------------" << endl;
-                }
-            }
-        }
     }
     stop_session();
 }
