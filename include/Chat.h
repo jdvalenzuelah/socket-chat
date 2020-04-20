@@ -158,7 +158,7 @@ class Server {
         ServerMessage direct_message( DirectMessageRequest req, client_info sender );
         ServerMessage error_response( string msg );
         string register_user( MyInfoSynchronize req, client_info cl );
-        ServerMessage get_connected_users( connectedUserRequest req );
+        ServerMessage get_connected_users();
         ServerMessage change_user_status( ChangeStatusRequest req, string name );
         ClientMessage parse_request( char *req );
         void send_all( ServerMessage res, string sender );

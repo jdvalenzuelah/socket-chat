@@ -62,11 +62,18 @@ int Server::listen_connections() {
 
     fprintf( _log_level, "INFO: Accepted request with fd: %d\n", req_fd );
 
+    /* Get the incomming request ip */
+    char ipstr[ INET6_ADDRSTRLEN ];
+    struct sockaddr_in *tmp_s = (struct sockaddr_in *)&_cl_addr;
+    inet_ntop( AF_INET, &tmp_s->sin_addr, ipstr, sizeof( ipstr ) );
+    fprintf(_log_level, "INFO: Incomming request ip %s\n", ipstr);
+
     /* Save request info to queue */
     struct client_info new_cl;
     new_cl.id = _user_count;
     new_cl.socket_info = _cl_addr;
     new_cl.req_fd = req_fd;
+    new_cl.ip = ipstr;
     req_push( new_cl );
     _user_count++;
 
@@ -137,7 +144,7 @@ ServerMessage Server::process_request( ClientMessage cl_msg, client_info cl ) {
     fprintf(_log_level, "DEBUG: Processing request option: %d\n", option);
     switch (option) {
         case CONNECTEDUSER:
-            return get_connected_users( cl_msg.connectedusers() );
+            return get_connected_users();
         case CHANGESTATUS:
             return change_user_status( cl_msg.changestatus(), cl.name );
         case BROADCASTC:
@@ -168,7 +175,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
         fprintf(_log_level, "DEBUG: Checking if ip adddress is already connected to server\n");
         map<std::string, client_info>::iterator it;
         for( it = all_users.begin(); it != all_users.end(); it++ ) {
-            if( req.ip() == it->second.ip ) {
+            if( cl.ip == it->second.ip ) {
                 send_response( cl.req_fd, &cl.socket_info, error_response("Ip already in use") );
                 return "";
             }
@@ -177,7 +184,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
 
     // Adding mising data to client info
     cl.name = req.username();
-    cl.ip = req.ip();
+
     // Adding to db
     fprintf(_log_level, "INFO: Save new user: %s conn fd: %d\n", req.username().c_str(), cl.req_fd);
     add_user( cl );
@@ -210,7 +217,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
 * Get all the connected users on the server
 * returns the server response with all the connected users
 */
-ServerMessage Server::get_connected_users( connectedUserRequest req ) {
+ServerMessage Server::get_connected_users() {
     /* Verify if there are connected users */
     map<std::string, client_info> all_users = get_all_users();
     if( all_users.empty() ) {
@@ -221,15 +228,12 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
 
     map<std::string, client_info>::iterator it;
     fprintf(_log_level, "DEBUG: Mapping connected users to response\n");
-    ConnectedUserResponse users;
+    ConnectedUserResponse * users( new ConnectedUserResponse );
     
     for( it = all_users.begin(); it != all_users.end(); it++ ) {
         ConnectedUser * c_user(new ConnectedUser);
         c_user->set_username(it->first);
-        c_user->set_status(it->second.status);
-        c_user->set_userid(it->second.id);
-        c_user->set_ip(it->second.ip);
-        ConnectedUser * c_user_l = users.add_connectedusers();
+        ConnectedUser * c_user_l = users->add_connectedusers();
         c_user_l = c_user;
         fprintf(_log_level, "DEBUG: Saving connected user to response\n");
     }
@@ -237,7 +241,8 @@ ServerMessage Server::get_connected_users( connectedUserRequest req ) {
     /* Form response */
     ServerMessage res;
     res.set_option( CONNECTEDUSERRESPONSE );
-    res.set_allocated_connecteduserresponse( &users );
+    fprintf(_log_level, "DEBUG: Saving connected users on response\n");
+    res.set_allocated_connecteduserresponse( users );
 
     return res;
 }
@@ -400,6 +405,7 @@ void * Server::new_conn_h( void * context ) {
         usr_nm = "";
         s->send_response( req_ds.req_fd, &req_ds.socket_info, s->error_response( "You must log in first\n" ) );
         fprintf( s->_log_level, "DEBUG: Unable to process new connection exiting thread ID: %d\n", ( int )tid);
+        close( req_ds.req_fd );
         pthread_exit( NULL );
     }
 
@@ -434,6 +440,8 @@ void * Server::new_conn_h( void * context ) {
             }
 
         }
+    } else {
+        close( req_ds.req_fd ); 
     }
     pthread_exit( NULL );
 }

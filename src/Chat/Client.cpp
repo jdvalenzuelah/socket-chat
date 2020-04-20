@@ -55,11 +55,7 @@ int Client::log_in() {
     /* Step 1: Sync option 1 */
     fprintf(_log_level,"DEBUG: Building log in request\n");
     MyInfoSynchronize * my_info(new MyInfoSynchronize);
-    char ip[256];
-    gethostname(ip, sizeof(ip)); // Get client ip address
-    fprintf( _log_level, "DEBUG: Logging in from ip: %s\n", ip );
     my_info->set_username(_username);
-    my_info->set_ip(ip);
 
     ClientMessage msg;
     msg.set_option( SYNCHRONIZED );
@@ -107,8 +103,6 @@ int Client::get_connected_request() {
     /* Build request */
     fprintf(_log_level,"DEBUG: Building connected request\n");
     connectedUserRequest * msg(new connectedUserRequest);
-    msg->set_userid( _user_id );
-    msg->set_username( _username );
 
     ClientMessage req;
     req.set_option( CONNECTEDUSER );
