@@ -187,7 +187,7 @@ string Server::register_user( MyInfoSynchronize req, client_info cl ) {
     cl.status = "activo";
 
     // Adding to db
-    fprintf(_log_level, "INFO: Save new user: %s conn fd: %d\n", req.username().c_str(), cl.req_fd);
+    fprintf(_log_level, "INFO: Save new user: %s id %d with conn fd: %d\n", req.username().c_str(), cl.id, cl.req_fd);
     add_user( cl );
 
     /* Step 2: Return userid to client */
@@ -325,6 +325,7 @@ ServerMessage Server::direct_message( DirectMessageRequest req, client_info send
 
     /* Send dm to rec */
     DirectMessage * dm_msg( new DirectMessage );
+    fprintf(_log_level, "DEBUG: User id sending message %d\n", sender.id);
     dm_msg->set_userid( sender.id );
     dm_msg->set_message( req.message() );
 
@@ -415,6 +416,7 @@ void * Server::new_conn_h( void * context ) {
     if( usr_nm != "" ){
         fprintf( s->_log_level, "INFO: Listenging for client '%s' messages on thread ID: %d\n", usr_nm.c_str(), ( int )tid);
         client_info user_ifo = s->get_user( usr_nm );
+        user_ifo.id = req_ds.id;
         char req[ MESSAGE_SIZE ];
         while( 1 ) {
             /* Read for new messages */

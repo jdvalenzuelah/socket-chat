@@ -405,7 +405,7 @@ void Client::push_res( ServerMessage el ) {
         msg.type = BROADCAST;
         _br_queue.push( msg );
     } else if( option == 2 ) {
-        msg.from_username = el.message().userid();
+        msg.from_id = el.message().userid();
         msg.message = el.message().message();
         msg.type = DIRECT;
         _dm_queue.push( msg );
@@ -585,7 +585,7 @@ void Client::start_session() {
                 getline( cin, dest_nm );
                 printf("Ingrese el mensaje a enviar: \n");
                 getline( cin, dm );
-                res_cd = direct_message( br_msg, -1, dest_nm );
+                res_cd = direct_message( dm, -1, dest_nm );
                 break;
             case 3:
                 printf("Seleccione un estado: \n");
