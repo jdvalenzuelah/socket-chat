@@ -56,11 +56,13 @@ Client
 ./client noobmaster69 127.0.0.1 8080
 ```
 
-By default a command line text interface is shown, if you would like to use a graphical user interface.
+By default a command line text interface is shown, if you would like to use a graphical user interface check out [here](https://github.com/11hengstenberg/Chat-Interface)
 
 ## Authors
 
-* **Josue Valenzuela** - *Initial work* - [Github](https://github.com/val171001)
+* **Josue Valenzuela**
+* **Marcos Gutierrez**
+* **Fernando Hengstenberg**
 
 ## License
 
