@@ -79,7 +79,7 @@ int Client::log_in() {
         return -1;
     }
 
-    fprintf(_log_level,"DEBUG: User id was returned by server\n");
+    fprintf(_log_level,"DEBUG: User id was returned by server %d\n",res.myinforesponse().userid() );
     _user_id = res.myinforesponse().userid() ;
 
     /* Step 3: Send ack to server */
@@ -88,6 +88,7 @@ int Client::log_in() {
     my_info_ack->set_userid(_user_id);
 
     ClientMessage res_ack;
+    res_ack.set_allocated_acknowledge( my_info_ack );
     res_ack.set_option( ACKNOWLEDGE );
 
     send_request(res_ack);
@@ -103,7 +104,8 @@ int Client::get_connected_request() {
     /* Build request */
     fprintf(_log_level,"DEBUG: Building connected request\n");
     connectedUserRequest * msg(new connectedUserRequest);
-
+    msg->set_userid( 0 );
+    
     ClientMessage req;
     req.set_option( CONNECTEDUSER );
     req.set_allocated_connectedusers( msg );
@@ -120,6 +122,7 @@ int Client::get_connected_request() {
 */
 map <string, connected_user> Client::parse_connected_users( ConnectedUserResponse c_usr ) {
     /* Save connected users */
+    fprintf(_log_level, "DEBUG: Parsing connected users sent by server\n");
     map <string, connected_user> c_users;
     int i;
     for( i = 0; i < c_usr.connectedusers().size(); i++ ) {
@@ -278,6 +281,8 @@ void * Client::bg_listener( void * context ) {
         /* Process acoorging to response, we ignore status responses */
         switch ( res.option() ) {
             case BROADCASTS:
+                c->push_res( res ); 
+                break;
             case MESSAGE:
                 c->push_res( res ); 
                 break;
@@ -290,8 +295,6 @@ void * Client::bg_listener( void * context ) {
             default:
                 break;
         }
-        
-        c->push_res( res );
     }
     fprintf(c->_log_level, "INFO: Exiting listening thread\n");
     pthread_exit( NULL );

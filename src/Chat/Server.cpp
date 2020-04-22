@@ -6,6 +6,7 @@ using namespace chat;
 * Start server instance. Saves port where the server will be running and defines the log level
 */
 Server::Server( int port, FILE *log_level ) {
+    _user_count = 1;
     _port = port;
     _log_level = log_level;
     pthread_mutex_init( &_user_list_mutex, NULL );
